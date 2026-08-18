@@ -13,7 +13,7 @@ import 'package:json_layer/contants/CommonConstant.dart';
 /// JSON 文本编辑器组件（基于 flutter_code_editor）。
 ///
 /// 特性：语法高亮、行号、花括号折叠、Ctrl+F 搜索（库内置）、
-/// 格式化/压缩、Ctrl+Shift+L 格式化、Ctrl+S 保存。
+/// 格式化/压缩、Ctrl+L 格式化、Ctrl+S 保存。
 class JsonEditor extends StatefulWidget {
   final String content;
   final ValueChanged<String> onChanged;
@@ -253,14 +253,13 @@ class _JsonEditorState extends State<JsonEditor> {
         }
       }
     }
-    // 原有快捷键：Ctrl+Shift+L 格式化、Ctrl+S 保存
+    // 原有快捷键：Ctrl+L 格式化、Ctrl+S 保存
     if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
-      final s = HardwareKeyboard.instance.isShiftPressed;
-      if (s && event.logicalKey == LogicalKeyboardKey.keyL) {
+      if (event.logicalKey == LogicalKeyboardKey.keyL) {
         _formatJson();
         return KeyEventResult.handled;
       }
-      if (!s && event.logicalKey == LogicalKeyboardKey.keyS) {
+      if (event.logicalKey == LogicalKeyboardKey.keyS) {
         widget.onSave?.call();
         return KeyEventResult.handled;
       }
@@ -322,7 +321,7 @@ class _JsonEditorState extends State<JsonEditor> {
           _buildActionButton(
             theme,
             icon: Icons.format_align_left,
-            tooltip: '格式化 (Ctrl+Shift+L)',
+            tooltip: '格式化 (Ctrl+L)',
             onTap: _formatJson,
           ),
           _buildActionButton(

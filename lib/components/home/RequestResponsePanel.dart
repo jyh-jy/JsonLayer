@@ -9,11 +9,10 @@ import 'package:json_layer/stores/EditorStore.dart';
 import 'package:json_layer/stores/TabStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
-/// 请求体/响应体面板（参考 APIFOX Body 设计）。
+/// 数据面板（参考 APIFOX Body 设计）。
 ///
 /// 结构：
-///   TabBar: 请求体 | 响应体
-///     子 TabBar: JSON 模式 | 对象模式
+///   TabBar: JSON 模式 | 对象模式
 class RequestResponsePanel extends StatefulWidget {
   const RequestResponsePanel({super.key});
 
@@ -23,19 +22,16 @@ class RequestResponsePanel extends StatefulWidget {
 
 class _RequestResponsePanelState extends State<RequestResponsePanel>
     with TickerProviderStateMixin {
-  late TabController _mainTabController;
   late TabController _subTabController;
 
   @override
   void initState() {
     super.initState();
-    _mainTabController = TabController(length: 2, vsync: this);
     _subTabController = TabController(length: 2, vsync: this);
   }
 
   @override
   void dispose() {
-    _mainTabController.dispose();
     _subTabController.dispose();
     super.dispose();
   }
@@ -49,28 +45,9 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
         if (activeTab == null) {
           return _buildEmptyState(theme);
         }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildMainTabBar(theme),
-            Expanded(
-              child: TabBarView(
-                controller: _mainTabController,
-                children: [
-                  _buildEditorArea(
-                    theme: theme,
-                    tab: activeTab,
-                    isRequest: true,
-                  ),
-                  _buildEditorArea(
-                    theme: theme,
-                    tab: activeTab,
-                    isRequest: false,
-                  ),
-                ],
-              ),
-            ),
-          ],
+        return _buildEditorArea(
+          theme: theme,
+          tab: activeTab,
         );
       },
     );
@@ -98,38 +75,9 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
     );
   }
 
-  Widget _buildMainTabBar(ThemeData theme) {
-    return Container(
-      height: 36,
-      color: Color(CommonConstants.surfaceColorValue),
-      child: TabBar(
-        controller: _mainTabController,
-        isScrollable: true,
-        tabAlignment: TabAlignment.start,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 16),
-        labelStyle: theme.textTheme.bodySmall?.copyWith(
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
-        ),
-        unselectedLabelStyle: theme.textTheme.bodySmall?.copyWith(
-          fontSize: 13,
-        ),
-        indicatorSize: TabBarIndicatorSize.label,
-        indicatorColor: theme.colorScheme.primary,
-        labelColor: theme.colorScheme.primary,
-        unselectedLabelColor: Color(CommonConstants.textSecondaryColorValue),
-        tabs: const [
-          Tab(text: '请求体'),
-          Tab(text: '响应体'),
-        ],
-      ),
-    );
-  }
-
   Widget _buildEditorArea({
     required ThemeData theme,
     required DocumentTab tab,
-    required bool isRequest,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -139,8 +87,8 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
           child: TabBarView(
             controller: _subTabController,
             children: [
-              _buildJsonMode(theme, tab, isRequest),
-              _buildObjectMode(theme, tab, isRequest),
+              _buildJsonMode(theme, tab),
+              _buildObjectMode(theme, tab),
             ],
           ),
         ),
@@ -176,9 +124,9 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
     );
   }
 
-  Widget _buildJsonMode(ThemeData theme, DocumentTab tab, bool isRequest) {
-    final content = isRequest ? tab.requestBody : tab.responseBody;
-    final title = isRequest ? '请求体' : '响应体';
+  Widget _buildJsonMode(ThemeData theme, DocumentTab tab) {
+    final content = tab.requestBody;
+    const title = '数据';
     return JsonEditor(
       content: content,
       title: title,
@@ -186,17 +134,15 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
         final tabStore = context.read<TabStore>();
         tabStore.updateTab(
           tab.id,
-          requestBody: isRequest ? value : null,
-          responseBody: isRequest ? null : value,
+          requestBody: value,
           isDirty: true,
         );
       },
-      // 仅请求体（承载磁盘文件内容）响应 Ctrl+S 保存
-      onSave: isRequest ? _saveActiveTab : null,
+      onSave: _saveActiveTab,
     );
   }
 
-  /// Ctrl+S 保存：将当前请求体内容写回磁盘文件。
+  /// Ctrl+S 保存：将当前数据内容写回磁盘文件。
   Future<void> _saveActiveTab() async {
     final tabStore = context.read<TabStore>();
     final tab = tabStore.activeTab;
@@ -225,9 +171,9 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
     }
   }
 
-  Widget _buildObjectMode(ThemeData theme, DocumentTab tab, bool isRequest) {
-    final content = isRequest ? tab.requestBody : tab.responseBody;
-    final title = isRequest ? '请求体' : '响应体';
+  Widget _buildObjectMode(ThemeData theme, DocumentTab tab) {
+    final content = tab.requestBody;
+    const title = '数据';
     return ObjectTreeEditor(
       content: content,
       title: title,
@@ -236,8 +182,7 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
         final tabStore = context.read<TabStore>();
         tabStore.updateTab(
           tab.id,
-          requestBody: isRequest ? value : null,
-          responseBody: isRequest ? null : value,
+          requestBody: value,
           isDirty: true,
         );
       },
