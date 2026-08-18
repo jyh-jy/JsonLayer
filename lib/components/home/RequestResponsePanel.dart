@@ -70,6 +70,16 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
               color: Color(CommonConstants.textSecondaryColorValue),
             ),
           ),
+          const SizedBox(height: 32),
+          Text(
+            '波仔JsonLayer',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Color(CommonConstants.textSecondaryColorValue).withValues(alpha: 0.5),
+              fontSize: 12,
+              letterSpacing: 2,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );

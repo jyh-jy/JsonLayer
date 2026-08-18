@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:json_layer/components/home/WorkspaceTree.dart';
@@ -93,6 +94,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
+          const _ExternalLinks(),
           const _WindowControls(),
         ],
       ),
@@ -123,6 +125,65 @@ class _HomePageState extends State<HomePage> {
           color: Color(CommonConstants.borderColorValue),
         ),
         const Expanded(child: RequestResponsePanel()),
+      ],
+    );
+  }
+}
+
+/// 外部链接按钮组（DP + GitHub）
+class _ExternalLinks extends StatelessWidget {
+  const _ExternalLinks();
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final iconColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // DP 图标
+        Tooltip(
+          message: 'DP 官网',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () => _openUrl('https://www.deepseek.com'),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Image.asset(
+                'images/deepseek.webp',
+                width: 16,
+                height: 16,
+                color: iconColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 2),
+        // GitHub 图标
+        Tooltip(
+          message: 'GitHub 仓库',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () => _openUrl('https://github.com/jyh-jy/JsonLayer'),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Image.asset(
+                'images/github.webp',
+                width: 16,
+                height: 16,
+                color: iconColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
       ],
     );
   }

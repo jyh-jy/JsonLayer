@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -780,6 +782,8 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         side: BorderSide(color: Color(CommonConstants.borderColorValue)),
       ),
       items: [
+        _buildMenuItem('在资源管理器中打开', Icons.folder_open, 'explorer'),
+        const PopupMenuDivider(height: 8),
         _buildMenuItem('重命名', Icons.edit, 'rename'),
         _buildMenuItem(
           '删除', Icons.delete_outline, 'delete',
@@ -798,7 +802,9 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     ).then((value) {
       if (value == null || !mounted) return;
       final store = context.read<WorkspaceStore>();
-      if (value == 'rename') {
+      if (value == 'explorer') {
+        _openInExplorer(node.path);
+      } else if (value == 'rename') {
         _showRenameDialog(node, store);
       } else if (value == 'delete') {
         _showDeleteConfirm(node, store);
@@ -829,6 +835,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
       ),
       items: [
         _buildMenuItem('打开', Icons.open_in_new, 'open'),
+        _buildMenuItem('在资源管理器中打开', Icons.folder_open, 'explorer'),
         const PopupMenuDivider(height: 8),
         _buildMenuItem('重命名', Icons.edit, 'rename'),
         _buildMenuItem(
@@ -841,12 +848,19 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
       final store = context.read<WorkspaceStore>();
       if (value == 'open') {
         _openDocument(node);
+      } else if (value == 'explorer') {
+        _openInExplorer(node.path);
       } else if (value == 'rename') {
         _showRenameDialog(node, store);
       } else if (value == 'delete') {
         _showDeleteConfirm(node, store);
       }
     });
+  }
+
+  void _openInExplorer(String path) {
+    // Windows: 在资源管理器中定位并选中该文件
+    Process.run('explorer', ['/select,', path]);
   }
 
   void _showRenameDialog(DocumentItem node, WorkspaceStore store) {

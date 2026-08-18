@@ -47,6 +47,12 @@ dependencies:
   # 外部文件拖放（桌面端）
   desktop_drop: ^0.5.0
 
+  # URL 打开
+  url_launcher: ^6.3.1
+
+  # 图标
+  font_awesome_flutter: ^10.8.0
+
   # 窗口管理（单例/窗口大小/激活）
   window_manager: ^0.5.2
   highlight: ^0.7.0
@@ -76,6 +82,8 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - images/JsonLayer.png
+    - images/deepseek.webp
+    - images/github.webp
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
