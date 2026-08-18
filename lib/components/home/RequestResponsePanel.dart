@@ -214,12 +214,8 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
     final workspaceStore = context.read<WorkspaceStore>();
     try {
       await workspaceStore.writeDocument(tab.path, tab.requestBody);
+      // 保存成功后文件头红点消失即为标识，无需弹框提示。
       tabStore.updateTab(tab.id, isDirty: false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已保存')),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

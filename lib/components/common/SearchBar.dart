@@ -29,6 +29,9 @@ class SearchQueryBar extends StatefulWidget {
   /// 输入框内按下 Esc
   final VoidCallback? onEscape;
 
+  /// 外部可传入的焦点节点，用于父组件在滚动后把焦点还给输入框
+  final FocusNode? focusNode;
+
   const SearchQueryBar({
     super.key,
     required this.onQueryChanged,
@@ -39,6 +42,7 @@ class SearchQueryBar extends StatefulWidget {
     this.initialQuery,
     this.onNavigate,
     this.onEscape,
+    this.focusNode,
   });
 
   @override
@@ -48,13 +52,16 @@ class SearchQueryBar extends StatefulWidget {
 class _SearchBarState extends State<SearchQueryBar> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
+  late final bool _ownsFocusNode;
   bool _focused = false;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialQuery ?? '');
-    _focusNode = FocusNode(onKeyEvent: _handleKeyEvent);
+    _ownsFocusNode = widget.focusNode == null;
+    _focusNode = widget.focusNode ?? FocusNode();
+    _focusNode.onKeyEvent = _handleKeyEvent;
     _focusNode.addListener(_onFocusChanged);
   }
 
@@ -94,7 +101,9 @@ class _SearchBarState extends State<SearchQueryBar> {
   void dispose() {
     _focusNode.removeListener(_onFocusChanged);
     _controller.dispose();
-    _focusNode.dispose();
+    if (_ownsFocusNode) {
+      _focusNode.dispose();
+    }
     super.dispose();
   }
 

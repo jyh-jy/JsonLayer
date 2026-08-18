@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
+import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
 /// 对象模式编辑器（树形展示 JSON 结构，参考 APIFOX 对象模式）。
@@ -31,6 +32,8 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   late Map<String, dynamic> _parsed;
   String? _errorMessage;
 
+  final FocusNode _focusNode = FocusNode();
+  final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _collapsedPaths = {};
 
   // 搜索相关状态
@@ -62,6 +65,8 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   @override
   void dispose() {
     _treeScrollController.dispose();
+    _focusNode.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -188,14 +193,19 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Focus(
+      focusNode: _focusNode,
       onKeyEvent: _onKeyEvent,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildHeader(theme),
-          if (_showSearchBar) _buildSearchBarWrap(theme),
-          Expanded(child: _buildTree(theme)),
-        ],
+      child: Listener(
+        // 点击编辑器任意位置即聚焦，保证 Ctrl+F 能被捕获。
+        onPointerDown: (_) => _focusNode.requestFocus(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(theme),
+            if (_showSearchBar) _buildSearchBarWrap(theme),
+            Expanded(child: _buildTree(theme)),
+          ],
+        ),
       ),
     );
   }
@@ -205,7 +215,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       final ctrl = HardwareKeyboard.instance.isControlPressed;
       final shift = HardwareKeyboard.instance.isShiftPressed;
       if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
-        setState(() => _showSearchBar = true);
+        _openSearch();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape && _showSearchBar) {
@@ -224,6 +234,14 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       }
     }
     return KeyEventResult.ignored;
+  }
+
+  void _openSearch() {
+    setState(() => _showSearchBar = true);
+    // 唤起后让输入框自动获得焦点，用户无需再点击输入框。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
   }
 
   void _closeSearch() {
@@ -294,7 +312,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             theme,
             icon: Icons.search,
             tooltip: '搜索 (Ctrl+F)',
-            onTap: () => setState(() => _showSearchBar = !_showSearchBar),
+            onTap: () => _showSearchBar ? _closeSearch() : _openSearch(),
           ),
           if (!widget.readOnly) ...[
             const SizedBox(width: 4),
@@ -331,6 +349,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
         onClose: _closeSearch,
         onNavigate: (shift) => shift ? _prevMatch() : _nextMatch(),
         onEscape: _closeSearch,
+        focusNode: _searchFocusNode,
       ),
     );
   }
@@ -645,10 +664,10 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       return Container(
         key: gk,
         decoration: BoxDecoration(
-          color: Color(CommonConstants.primaryColorValue).withValues(alpha: 0.12),
+          color: SearchHighlight.currentFrameBackground,
           borderRadius: BorderRadius.circular(2),
           border: Border.all(
-            color: Color(CommonConstants.primaryColorValue),
+            color: SearchHighlight.currentFrameColor,
             width: 1,
           ),
         ),
@@ -669,9 +688,9 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     TextStyle style,
     bool isCurrent,
   ) {
-    final defaultBg = Colors.amber.withValues(alpha: 0.55);
-    final currentBg = Color(CommonConstants.primaryColorValue).withValues(alpha: 0.35);
-    final bg = isCurrent ? currentBg : defaultBg;
+    final bg = isCurrent
+        ? SearchHighlight.currentBackground
+        : SearchHighlight.matchBackground;
 
     List<Match> findMatches(String src) {
       if (_isRegex) {

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/json.dart' as json_highlight;
 
 import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
+import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
 /// JSON 文本编辑器组件（基于 flutter_code_editor）。
@@ -35,6 +37,8 @@ class JsonEditor extends StatefulWidget {
 class _JsonEditorState extends State<JsonEditor> {
   late _JsonCodeController _controller;
   final ScrollController _lineNumberScrollController = ScrollController();
+  final FocusNode _editorFocusNode = FocusNode();
+  final FocusNode _searchFocusNode = FocusNode();
   int _lineCount = 1;
 
   // 搜索相关
@@ -70,6 +74,8 @@ class _JsonEditorState extends State<JsonEditor> {
   void dispose() {
     _controller.removeListener(_onTextChanged);
     _lineNumberScrollController.dispose();
+    _editorFocusNode.dispose();
+    _searchFocusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -95,6 +101,7 @@ class _JsonEditorState extends State<JsonEditor> {
     _currentMatchIndex = -1;
     final q = _searchQuery.trim();
     if (q.isEmpty) {
+      _syncHighlight();
       setState(() {});
       return;
     }
@@ -132,52 +139,47 @@ class _JsonEditorState extends State<JsonEditor> {
     }
     if (_matches.isNotEmpty) {
       _currentMatchIndex = 0;
-      _selectCurrent();
     }
+    _syncHighlight();
     setState(() {});
+    if (_matches.isNotEmpty) {
+      _selectCurrent(scroll: true);
+    }
   }
 
-  void _selectCurrent() {
+  /// 把命中与当前序号同步到控制器，供 buildTextSpan 高亮使用。
+  void _syncHighlight() {
+    _controller.updateSearchHighlight(
+      List<TextRange>.from(_matches),
+      _currentMatchIndex,
+    );
+  }
+
+  /// 选中当前命中，并（可选）让编辑器滚动到该位置。
+  void _selectCurrent({bool scroll = false}) {
     if (_currentMatchIndex < 0 || _currentMatchIndex >= _matches.length) return;
     final range = _matches[_currentMatchIndex];
-    // 在下一帧设置 selection，避免和输入冲突
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      try {
-        _controller.selection = TextSelection(
-          baseOffset: range.start,
-          extentOffset: range.end,
-          affinity: TextAffinity.downstream,
-        );
-        // 通过 bringIntoView 让光标所在位置滚动到可见
-        _bringSelectionIntoView(range);
-      } catch (_) {}
-    });
-  }
-
-  Future<void> _bringSelectionIntoView(TextRange range) async {
-    // Flutter 的 TextField 会在 selection 变化时自动滚动
-    await Future.delayed(const Duration(milliseconds: 20));
-    if (!mounted) return;
-    // 尝试再设置一次触发滚动
-    try {
-      _controller.selection = TextSelection.collapsed(
-        offset: range.start,
-      );
-      await Future.delayed(const Duration(milliseconds: 10));
-      if (!mounted) return;
-      _controller.selection = TextSelection(
-        baseOffset: range.start,
-        extentOffset: range.end,
-      );
-    } catch (_) {}
+    _controller.selection = TextSelection(
+      baseOffset: range.start,
+      extentOffset: range.end,
+      affinity: TextAffinity.downstream,
+    );
+    if (scroll) {
+      // 让编辑器获得焦点以触发滚动，随后把焦点还给搜索框。
+      _editorFocusNode.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _searchFocusNode.requestFocus();
+      });
+    }
   }
 
   void _nextMatch() {
     if (_matches.isEmpty) return;
     _currentMatchIndex = (_currentMatchIndex + 1) % _matches.length;
+    _syncHighlight();
     setState(() {});
-    _selectCurrent();
+    _selectCurrent(scroll: true);
   }
 
   void _prevMatch() {
@@ -185,17 +187,23 @@ class _JsonEditorState extends State<JsonEditor> {
     _currentMatchIndex = _currentMatchIndex <= 0
         ? _matches.length - 1
         : _currentMatchIndex - 1;
+    _syncHighlight();
     setState(() {});
-    _selectCurrent();
+    _selectCurrent(scroll: true);
   }
 
   void _openSearch() {
     setState(() => _showSearchBar = true);
     _controller.searchBarVisible = true;
+    // 唤起后让输入框自动获得焦点，用户无需再点击输入框。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _searchFocusNode.requestFocus();
+    });
   }
 
   void _closeSearch() {
     _controller.searchBarVisible = false;
+    _controller.updateSearchHighlight(const [], -1);
     setState(() {
       _showSearchBar = false;
       _searchQuery = '';
@@ -280,6 +288,7 @@ class _JsonEditorState extends State<JsonEditor> {
         onClose: _closeSearch,
         onNavigate: (shift) => shift ? _prevMatch() : _nextMatch(),
         onEscape: _closeSearch,
+        focusNode: _searchFocusNode,
       ),
     );
   }
@@ -377,6 +386,7 @@ class _JsonEditorState extends State<JsonEditor> {
                 data: CodeThemeData(styles: _buildHighlightStyles()),
                 child: CodeField(
                   controller: _controller,
+                  focusNode: _editorFocusNode,
                   readOnly: widget.readOnly,
                   expands: true,
                   textStyle: baseStyle,
@@ -488,6 +498,19 @@ class _JsonCodeController extends CodeController {
   /// 搜索栏是否可见（由外部同步），用于决定 Enter/Esc 是否用于搜索。
   bool searchBarVisible = false;
 
+  /// 当前命中的高亮数据（全文偏移，已排序且不重叠），由外部同步。
+  List<TextRange> highlightMatches = const [];
+
+  /// 当前命中在 [highlightMatches] 中的序号。
+  int highlightCurrentIndex = -1;
+
+  /// 更新搜索高亮并触发重绘（确保清空时高亮也能消失）。
+  void updateSearchHighlight(List<TextRange> matches, int currentIndex) {
+    highlightMatches = matches;
+    highlightCurrentIndex = currentIndex;
+    notifyListeners();
+  }
+
   VoidCallback? onOpenSearch;
   VoidCallback? onCloseSearch;
   void Function(bool shift)? onNavigate;
@@ -514,5 +537,87 @@ class _JsonCodeController extends CodeController {
       }
     }
     return super.onKey(event);
+  }
+
+  /// 在语法高亮之上叠加搜索高亮：所有命中用琥珀色，当前命中用主题色。
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    bool? withComposing,
+  }) {
+    final base = super.buildTextSpan(
+      context: context,
+      style: style,
+      withComposing: withComposing,
+    );
+    if (highlightMatches.isEmpty) return base;
+    return _applySearchHighlight(base, style);
+  }
+
+  TextSpan _applySearchHighlight(TextSpan base, TextStyle? rootStyle) {
+    final matches = highlightMatches;
+    final spans = <InlineSpan>[];
+    int matchIndex = 0; // 下一个待处理的命中
+    int offset = 0; // 当前叶子的全文起始偏移
+
+    base.visitChildren((span) {
+      if (span is! TextSpan) return true;
+      final text = span.text;
+      if (text == null || text.isEmpty) return true;
+      final leafStyle = span.style;
+      int local = 0;
+      while (local < text.length) {
+        if (matchIndex >= matches.length) {
+          spans.add(TextSpan(text: text.substring(local), style: leafStyle));
+          local = text.length;
+          break;
+        }
+        final m = matches[matchIndex];
+        final mStart = m.start - offset;
+        final mEnd = m.end - offset;
+        if (mEnd <= local) {
+          matchIndex++;
+          continue;
+        }
+        if (mStart > local) {
+          final beforeEnd = math.min(mStart, text.length);
+          spans.add(
+            TextSpan(text: text.substring(local, beforeEnd), style: leafStyle),
+          );
+          local = beforeEnd;
+          if (mStart >= text.length) break;
+          continue;
+        }
+        // local 落在命中区间内
+        final end = math.min(mEnd, text.length);
+        final isCurrent = matchIndex == highlightCurrentIndex;
+        final baseStyle = leafStyle ?? const TextStyle();
+        // 文本编辑器无法画真边框，用上下装饰线模拟对象模式的「框」。
+        final highlightStyle = isCurrent
+            ? baseStyle.copyWith(
+                backgroundColor: SearchHighlight.currentBackground,
+                decoration: TextDecoration.combine([
+                  TextDecoration.overline,
+                  TextDecoration.underline,
+                ]),
+                decorationColor: SearchHighlight.currentFrameColor,
+                decorationThickness: 1.5,
+              )
+            : baseStyle.copyWith(backgroundColor: SearchHighlight.matchBackground);
+        spans.add(
+          TextSpan(
+            text: text.substring(local, end),
+            style: highlightStyle,
+          ),
+        );
+        local = end;
+        if (end >= mEnd) matchIndex++;
+      }
+      offset += text.length;
+      return true;
+    });
+
+    return TextSpan(children: spans, style: rootStyle);
   }
 }
