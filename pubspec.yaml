@@ -47,6 +47,7 @@ dependencies:
   # 窗口管理（单例/窗口大小/激活）
   window_manager: ^0.5.2
   highlight: ^0.7.0
+  flutter_code_editor: ^0.3.5
 
 dev_dependencies:
   flutter_test:
