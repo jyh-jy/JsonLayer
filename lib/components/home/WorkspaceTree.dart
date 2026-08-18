@@ -16,14 +16,49 @@ class WorkspaceTree extends StatefulWidget {
 }
 
 class _WorkspaceTreeState extends State<WorkspaceTree> {
-  String? _expandedFolderPath;
+  final Set<String> _expandedFolderPaths = {};
+  String? _highlightPath;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkLocateRequest());
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// 检查并处理定位请求
+  void _checkLocateRequest() {
+    if (!mounted) return;
+    final store = context.read<WorkspaceStore>();
+    if (store.locatePath != null) {
+      _expandAndHighlight(store.locatePath!);
+      store.clearLocate();
+    }
+  }
+
+  /// 展开路径的所有父级文件夹并高亮目标文件
+  void _expandAndHighlight(String path) {
+    final store = context.read<WorkspaceStore>();
+    final parentPaths = store.getParentPaths(path);
+    setState(() {
+      _expandedFolderPaths.addAll(parentPaths);
+      _highlightPath = path;
+    });
+    // 3秒后取消高亮
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted && _highlightPath == path) {
+        setState(() {
+          _highlightPath = null;
+        });
+      }
+    });
   }
 
   @override
@@ -188,6 +223,13 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   Widget _buildTree() {
     return Consumer<WorkspaceStore>(
       builder: (context, store, _) {
+        // 检查定位请求
+        if (store.locatePath != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _expandAndHighlight(store.locatePath!);
+            store.clearLocate();
+          });
+        }
         if (store.isLoading) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -223,7 +265,8 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     if (node.isDocument) {
       return _buildDocumentTile(node, depth);
     }
-    final isExpanded = _expandedFolderPath == node.path || node.isExpanded;
+    final isExpanded =
+        _expandedFolderPaths.contains(node.path) || node.isExpanded;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -243,7 +286,11 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         highlightColor: theme.colorScheme.primary.withValues(alpha: 0.05),
         onTap: () {
           setState(() {
-            _expandedFolderPath = isExpanded ? null : node.path;
+            if (_expandedFolderPaths.contains(node.path)) {
+              _expandedFolderPaths.remove(node.path);
+            } else {
+              _expandedFolderPaths.add(node.path);
+            }
           });
           context.read<WorkspaceStore>().toggleExpand(node.path);
         },
@@ -289,6 +336,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     final theme = Theme.of(context);
     final tabStore = context.read<TabStore>();
     final isOpen = tabStore.findByItemId(node.id) != null;
+    final isHighlighted = _highlightPath == node.path;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -301,6 +349,18 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           height: 26,
           padding: EdgeInsets.only(left: 8 + depth * 14 + 18),
           alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: isHighlighted
+                ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                : Colors.transparent,
+            border: isHighlighted
+                ? Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                    width: 1,
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(4),
+          ),
           child: Row(
             children: [
               _buildFileIcon(node.documentType),
@@ -310,6 +370,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
                   node.name,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: isOpen ? theme.colorScheme.primary : null,
+                    fontWeight: isHighlighted ? FontWeight.w600 : null,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 
 import 'package:json_layer/contants/CommonConstant.dart';
@@ -98,6 +99,8 @@ class _DocumentTabsState extends State<DocumentTabs> {
     final isActive = tabStore.activeTabId == tab.id;
     return GestureDetector(
       onTap: () => tabStore.activateTab(tab.id),
+      onSecondaryTapDown: (details) =>
+          _showTabMenu(tab, tabStore, details.globalPosition),
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
@@ -160,6 +163,90 @@ class _DocumentTabsState extends State<DocumentTabs> {
               ),
             ),
             const SizedBox(width: 6),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 标签右键菜单位置计算
+  RelativeRect _menuPosition(Offset globalPosition) {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    return RelativeRect.fromRect(
+      Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
+      Offset.zero & overlay.size,
+    );
+  }
+
+  /// 标签右键菜单
+  void _showTabMenu(DocumentTab tab, TabStore tabStore, Offset globalPosition) {
+    showMenu<String>(
+      context: context,
+      position: _menuPosition(globalPosition),
+      color: Color(CommonConstants.surfaceColorValue),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
+        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+      ),
+      items: [
+        _buildMenuItem(
+          '关闭其他', Icons.tab_unselected, 'close_others',
+        ),
+        _buildMenuItem(
+          '定位', Icons.my_location, 'locate',
+          iconColor: Color(CommonConstants.primaryColorValue),
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          '关闭所有', Icons.clear_all, 'close_all',
+          iconColor: const Color(0xFFDC2626),
+        ),
+      ],
+    ).then((value) {
+      if (value == null || !mounted) return;
+      if (value == 'close_others') {
+        tabStore.closeOthers(tab.id);
+      } else if (value == 'locate') {
+        if (tab.path.isNotEmpty) {
+          context.read<WorkspaceStore>().requestLocate(tab.path);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该标签未绑定文件，无法定位')),
+          );
+        }
+      } else if (value == 'close_all') {
+        tabStore.closeAll();
+      }
+    });
+  }
+
+  /// 构建菜单项（与 WorkspaceTree 风格统一）
+  PopupMenuItem<String> _buildMenuItem(
+    String label,
+    IconData icon,
+    String value, {
+    Color? iconColor,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Container(
+        height: CommonConstants.menuItemHeight,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: iconColor ?? Color(CommonConstants.textSecondaryColorValue),
+            ),
+            const SizedBox(width: CommonConstants.menuItemPadding),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: CommonConstants.menuFontSize,
+                color: Color(CommonConstants.textPrimaryColorValue),
+              ),
+            ),
           ],
         ),
       ),

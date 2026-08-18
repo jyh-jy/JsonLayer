@@ -15,11 +15,38 @@ class WorkspaceStore extends ChangeNotifier {
   DocumentItem? _root;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _locatePath;
+  int _locateTick = 0;
 
   DocumentItem? get root => _root;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get workspacePath => _service.workspacePath;
+  String? get locatePath => _locatePath;
+  int get locateTick => _locateTick;
+
+  /// 请求定位文件：展开父级目录并高亮该文件
+  void requestLocate(String path) {
+    _locatePath = path;
+    _locateTick++;
+    notifyListeners();
+  }
+
+  /// 清除定位
+  void clearLocate() {
+    _locatePath = null;
+    notifyListeners();
+  }
+
+  /// 获取某路径的所有父级路径（用于展开文件夹）
+  List<String> getParentPaths(String path) {
+    final parts = path.split('\\');
+    final result = <String>[];
+    for (var i = 1; i < parts.length; i++) {
+      result.add(parts.sublist(0, i).join('\\'));
+    }
+    return result;
+  }
 
   /// 初始化：检查是否已配置工作空间路径
   Future<bool> hasConfiguredWorkspace() async {

@@ -76,6 +76,13 @@ class TabStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 关闭除指定标签外的所有标签
+  void closeOthers(String tabId) {
+    _tabs.removeWhere((t) => t.id != tabId);
+    _activeTabId = tabId;
+    notifyListeners();
+  }
+
   /// 更新标签内容
   void updateTab(
     String tabId, {
