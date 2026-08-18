@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
 import 'package:json_layer/contants/CommonConstant.dart';
 
 /// 对象模式编辑器（树形展示 JSON 结构，参考 APIFOX 对象模式）。
@@ -30,7 +32,17 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   String? _errorMessage;
 
   final Set<String> _collapsedPaths = {};
+
+  // 搜索相关状态
+  bool _showSearchBar = false;
   String _searchQuery = '';
+  bool _caseSensitive = false;
+  bool _isRegex = false;
+  final List<MatchInfo> _matches = [];
+  final Map<String, int> _matchIndexByKey = {}; // "path:kind" -> index in _matches
+  int _currentMatchIndex = -1;
+  final ScrollController _treeScrollController = ScrollController();
+  final Map<int, GlobalKey> _matchKeys = {};
 
   @override
   void initState() {
@@ -43,7 +55,14 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     super.didUpdateWidget(oldWidget);
     if (widget.content != oldWidget.content) {
       _parsed = _parseContent(widget.content);
+      _recollectMatches();
     }
+  }
+
+  @override
+  void dispose() {
+    _treeScrollController.dispose();
+    super.dispose();
   }
 
   Map<String, dynamic> _parseContent(String content) {
@@ -66,16 +85,171 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     }
   }
 
+  // ---------------- 搜索核心逻辑 ----------------
+
+  /// 根据当前设置重新收集所有匹配项
+  void _recollectMatches() {
+    _matches.clear();
+    _matchIndexByKey.clear();
+    _matchKeys.clear();
+    _currentMatchIndex = -1;
+
+    final q = _searchQuery.trim();
+    if (q.isEmpty) {
+      setState(() {});
+      return;
+    }
+
+    RegExp? regex;
+    try {
+      if (_isRegex) {
+        regex = RegExp(
+          q,
+          caseSensitive: _caseSensitive,
+          multiLine: false,
+        );
+      }
+    } catch (_) {
+      regex = null;
+    }
+
+    bool matches(String text) {
+      if (_isRegex) {
+        final r = regex;
+        if (r == null) return false;
+        return r.hasMatch(text);
+      }
+      return _caseSensitive
+          ? text.contains(q)
+          : text.toLowerCase().contains(q.toLowerCase());
+    }
+
+    void record(String text, String kind, String path) {
+      if (matches(text)) {
+        final lookup = '$path:$kind';
+        final idx = _matches.length;
+        final gk = GlobalKey(debugLabel: 'match_$idx');
+        _matchKeys[idx] = gk;
+        _matchIndexByKey[lookup] = idx;
+        _matches.add(MatchInfo(
+          text: text,
+          kind: kind,
+          path: path,
+          key: gk,
+        ));
+      }
+    }
+
+    void walk(dynamic node, String path) {
+      if (node is Map<String, dynamic>) {
+        for (final e in node.entries) {
+          final keyPath = '$path.${e.key}';
+          record(e.key, 'key', keyPath);
+          walk(e.value, keyPath);
+        }
+      } else if (node is List) {
+        for (var i = 0; i < node.length; i++) {
+          final p = '$path[$i]';
+          walk(node[i], p);
+        }
+      } else {
+        final text = node == null ? 'null' : jsonEncode(node);
+        record(text, 'value', path);
+      }
+    }
+
+    walk(_parsed, 'root');
+
+    if (_matches.isNotEmpty) {
+      _currentMatchIndex = 0;
+    }
+    setState(() {});
+  }
+
+  void _gotoMatch(int index) {
+    if (index < 0 || index >= _matches.length) return;
+    _currentMatchIndex = index;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetKey = _matchKeys[index];
+      if (targetKey == null) return;
+      final ctx = targetKey.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildHeader(theme),
-        Expanded(child: _buildTree(theme)),
-      ],
+    return Focus(
+      onKeyEvent: _onKeyEvent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(theme),
+          if (_showSearchBar) _buildSearchBarWrap(theme),
+          Expanded(child: _buildTree(theme)),
+        ],
+      ),
     );
+  }
+
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final ctrl = HardwareKeyboard.instance.isControlPressed;
+      final shift = HardwareKeyboard.instance.isShiftPressed;
+      if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
+        setState(() => _showSearchBar = true);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape && _showSearchBar) {
+        _closeSearch();
+        return KeyEventResult.handled;
+      }
+      if (_showSearchBar && _matches.isNotEmpty) {
+        if (event.logicalKey == LogicalKeyboardKey.enter) {
+          if (shift) {
+            _prevMatch();
+          } else {
+            _nextMatch();
+          }
+          return KeyEventResult.handled;
+        }
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _showSearchBar = false;
+      _searchQuery = '';
+      _caseSensitive = false;
+      _isRegex = false;
+      _matches.clear();
+      _matchKeys.clear();
+      _currentMatchIndex = -1;
+    });
+  }
+
+  void _nextMatch() {
+    if (_matches.isEmpty) return;
+    final next = (_currentMatchIndex + 1) % _matches.length;
+    _gotoMatch(next);
+  }
+
+  void _prevMatch() {
+    if (_matches.isEmpty) return;
+    final prev = _currentMatchIndex <= 0
+        ? _matches.length - 1
+        : _currentMatchIndex - 1;
+    _gotoMatch(prev);
   }
 
   Widget _buildHeader(ThemeData theme) {
@@ -90,7 +264,13 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       ),
       child: Row(
         children: [
-          Text(widget.title, style: theme.textTheme.titleSmall),
+          Text(
+            widget.title,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Color(CommonConstants.textSecondaryColorValue),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
           if (widget.readOnly) ...[
             const SizedBox(width: 8),
             Container(
@@ -110,7 +290,12 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             ),
           ],
           const Spacer(),
-          _buildSearchField(theme),
+          _buildActionButton(
+            theme,
+            icon: Icons.search,
+            tooltip: '搜索 (Ctrl+F)',
+            onTap: () => setState(() => _showSearchBar = !_showSearchBar),
+          ),
           if (!widget.readOnly) ...[
             const SizedBox(width: 4),
             _buildActionButton(
@@ -125,27 +310,38 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     );
   }
 
-  Widget _buildSearchField(ThemeData theme) {
-    return SizedBox(
-      width: 180,
-      height: 22,
-      child: TextField(
-        onChanged: (v) => setState(() => _searchQuery = v.trim()),
-        style: const TextStyle(fontSize: 11),
-        decoration: InputDecoration(
-          hintText: '搜索 key / value',
-          prefixIcon: const Icon(Icons.search, size: 13),
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(3),
-            borderSide: BorderSide(color: Color(CommonConstants.borderColorValue)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(3),
-            borderSide: BorderSide(color: Color(CommonConstants.borderColorValue)),
-          ),
+  Widget _buildSearchBarWrap(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: Color(CommonConstants.sidebarColorValue),
+        border: Border(
+          bottom: BorderSide(color: Color(CommonConstants.borderColorValue)),
         ),
+      ),
+      alignment: Alignment.centerRight,
+      child: SearchQueryBar(
+        inputWidth: 200,
+        height: 28,
+        currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
+        totalMatches: _matches.isEmpty && _searchQuery.trim().isEmpty
+            ? null
+            : _matches.length,
+        onQueryChanged: (q) {
+          _searchQuery = q;
+          _recollectMatches();
+        },
+        onCaseSensitiveChanged: (v) {
+          _caseSensitive = v;
+          _recollectMatches();
+        },
+        onRegexChanged: (v) {
+          _isRegex = v;
+          _recollectMatches();
+        },
+        onPrev: _matches.isEmpty ? null : _prevMatch,
+        onNext: _matches.isEmpty ? null : _nextMatch,
+        onClose: _closeSearch,
       ),
     );
   }
@@ -204,6 +400,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     }
 
     return ListView(
+      controller: _treeScrollController,
       padding: const EdgeInsets.all(8),
       children: [
         _buildObjectNode(_parsed, 0, isRoot: true, path: 'root'),
@@ -337,7 +534,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
                 padding: const EdgeInsets.only(left: 24, top: 2),
                 child: Row(
                   children: [
-                    _buildPrimitiveValue(itemValue),
+                    _buildPrimitiveValue(itemValue, path: '$path[$idx]'),
                     if (!isLastItem)
                       Text(',', style: _punctStyle()),
                   ],
@@ -356,9 +553,14 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
         padding: const EdgeInsets.only(left: 8, top: 2),
         child: Row(
           children: [
-            _highlightedText('"$key"', _keyStyle()),
+            _highlightedText(
+              '"$key"',
+              _keyStyle(),
+              lookupKey: '$path:key',
+              rawSource: key,
+            ),
             Text(': ', style: _punctStyle()),
-            _buildPrimitiveValue(value),
+            _buildPrimitiveValue(value, path: path),
             Text(trailing, style: _punctStyle()),
             _buildTypeBadge(_getTypeName(value), _getTypeColor(value)),
           ],
@@ -387,7 +589,12 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
               size: 14,
               color: Color(CommonConstants.textSecondaryColorValue),
             ),
-            _highlightedText('"$key"', _keyStyle()),
+            _highlightedText(
+              '"$key"',
+              _keyStyle(),
+              lookupKey: '$path:key',
+              rawSource: key,
+            ),
             Text(': $openToken', style: _punctStyle()),
             if (collapsed)
               Text(
@@ -412,38 +619,122 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     });
   }
 
-  Widget _buildPrimitiveValue(dynamic value) {
+  Widget _buildPrimitiveValue(dynamic value, {required String path}) {
     final color = _getTypeColor(value);
     final text = value == null ? 'null' : jsonEncode(value);
-    return _highlightedText(text, TextStyle(color: color, fontFamily: 'Consolas', fontSize: 13));
+    return _highlightedText(
+      text,
+      TextStyle(color: color, fontFamily: 'Consolas', fontSize: 13),
+      lookupKey: '$path:value',
+      rawSource: text,
+    );
   }
 
-  /// 搜索高亮：命中关键字时用背景色标注。
-  Widget _highlightedText(String text, TextStyle style) {
-    final q = _searchQuery;
-    if (q.isEmpty) return Text(text, style: style);
-    final lower = text.toLowerCase();
-    final ql = q.toLowerCase();
-    if (!lower.contains(ql)) return Text(text, style: style);
+  /// 搜索高亮：命中关键字时用背景色标注；当前命中用主题色突出。
+  ///
+  /// [rawSource] 用于匹配的原始文本（不含外层包装字符，如无则同 text）
+  /// [lookupKey]  唯一标识 "$path:$kind"，用于查询命中索引
+  Widget _highlightedText(
+    String text,
+    TextStyle style, {
+    required String lookupKey,
+    required String rawSource,
+  }) {
+    final q = _searchQuery.trim();
+    final matchIndex = _matchIndexByKey[lookupKey];
+    final isCurrent = matchIndex != null && matchIndex == _currentMatchIndex;
+    final gk = matchIndex != null ? _matchKeys[matchIndex] : null;
+
+    Widget child;
+    if (q.isEmpty || matchIndex == null) {
+      child = Text(text, style: style);
+    } else {
+      child = _buildHighlightedRich(text, rawSource, q, style, isCurrent);
+    }
+
+    if (isCurrent && gk != null) {
+      return Container(
+        key: gk,
+        decoration: BoxDecoration(
+          color: Color(CommonConstants.primaryColorValue).withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(2),
+          border: Border.all(
+            color: Color(CommonConstants.primaryColorValue),
+            width: 1,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+        child: child,
+      );
+    }
+    if (gk != null) {
+      return Container(key: gk, child: child);
+    }
+    return child;
+  }
+
+  Widget _buildHighlightedRich(
+    String display,
+    String source,
+    String query,
+    TextStyle style,
+    bool isCurrent,
+  ) {
+    final defaultBg = Colors.amber.withValues(alpha: 0.55);
+    final currentBg = Color(CommonConstants.primaryColorValue).withValues(alpha: 0.35);
+    final bg = isCurrent ? currentBg : defaultBg;
+
+    List<Match> findMatches(String src) {
+      if (_isRegex) {
+        try {
+          return RegExp(
+            query,
+            caseSensitive: _caseSensitive,
+          ).allMatches(src).toList();
+        } catch (_) {
+          return const [];
+        }
+      }
+      final q = query;
+      final result = <Match>[];
+      int idx = 0;
+      if (_caseSensitive) {
+        while ((idx = src.indexOf(q, idx)) != -1) {
+          result.add(src.substring(idx, idx + q.length).allMatches(src).first);
+          idx += q.length;
+        }
+      } else {
+        final lower = src.toLowerCase();
+        final ql = q.toLowerCase();
+        while ((idx = lower.indexOf(ql, idx)) != -1) {
+          result.add(MatchImpl(idx, idx + q.length, src));
+          idx += q.length;
+        }
+      }
+      return result;
+    }
+
+    // 直接在 display 上找命中；对于 key 这种 display='"xxx"' 而 source='xxx' 的情况，
+    // display 是包含 source 的，所以统一在 display 上匹配效果最直观。
+    final matches = findMatches(display);
+    if (matches.isEmpty) return Text(display, style: style);
 
     final spans = <TextSpan>[];
-    int i = 0;
-    while (i < text.length) {
-      final idx = lower.indexOf(ql, i);
-      if (idx == -1) {
-        spans.add(TextSpan(text: text.substring(i), style: style));
-        break;
-      }
-      if (idx > i) {
-        spans.add(TextSpan(text: text.substring(i, idx), style: style));
+    int cursor = 0;
+    for (final m in matches) {
+      final s = m.start;
+      final e = m.end;
+      if (s > cursor) {
+        spans.add(TextSpan(text: display.substring(cursor, s), style: style));
       }
       spans.add(TextSpan(
-        text: text.substring(idx, idx + q.length),
-        style: style.copyWith(
-          backgroundColor: Colors.amber.withValues(alpha: 0.5),
-        ),
+        text: display.substring(s, e),
+        style: style.copyWith(backgroundColor: bg),
       ));
-      i = idx + q.length;
+      cursor = e;
+    }
+    if (cursor < display.length) {
+      spans.add(TextSpan(text: display.substring(cursor), style: style));
     }
     return Text.rich(TextSpan(children: spans));
   }
@@ -541,4 +832,48 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       ),
     );
   }
+}
+
+class MatchInfo {
+  final String text;
+  final String kind; // 'key' | 'value'
+  final String path;
+  final GlobalKey key;
+
+  MatchInfo({
+    required this.text,
+    required this.kind,
+    required this.path,
+    required this.key,
+  });
+}
+
+class MatchImpl implements Match {
+  @override
+  final int start;
+  @override
+  final int end;
+  final String _input;
+
+  MatchImpl(this.start, this.end, this._input);
+
+  @override
+  String? group(int groupNum) =>
+      groupNum == 0 ? _input.substring(start, end) : null;
+
+  @override
+  String? operator [](int groupNum) => group(groupNum);
+
+  @override
+  int get groupCount => 0;
+
+  @override
+  List<String?> groups(List<int> groupIndices) =>
+      groupIndices.map((i) => group(i)).toList();
+
+  @override
+  Pattern get pattern => RegExp('');
+
+  @override
+  String get input => _input;
 }

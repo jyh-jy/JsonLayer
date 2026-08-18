@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/json.dart' as json_highlight;
 
+import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
 import 'package:json_layer/contants/CommonConstant.dart';
 
 /// JSON 文本编辑器组件（基于 flutter_code_editor）。
@@ -33,6 +34,16 @@ class JsonEditor extends StatefulWidget {
 
 class _JsonEditorState extends State<JsonEditor> {
   late CodeController _controller;
+  final ScrollController _lineNumberScrollController = ScrollController();
+  int _lineCount = 1;
+
+  // 搜索相关
+  bool _showSearchBar = false;
+  String _searchQuery = '';
+  bool _caseSensitive = false;
+  bool _isRegex = false;
+  final List<TextRange> _matches = [];
+  int _currentMatchIndex = -1;
 
   @override
   void initState() {
@@ -41,6 +52,8 @@ class _JsonEditorState extends State<JsonEditor> {
       text: widget.content,
       language: json_highlight.json,
     );
+    _updateLineCount();
+    _controller.addListener(_onTextChanged);
   }
 
   @override
@@ -48,24 +61,230 @@ class _JsonEditorState extends State<JsonEditor> {
     super.didUpdateWidget(oldWidget);
     if (widget.content != _controller.text) {
       _controller.text = widget.content;
+      _updateLineCount();
     }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onTextChanged);
+    _lineNumberScrollController.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    _updateLineCount();
+  }
+
+  void _updateLineCount() {
+    final text = _controller.text;
+    final count = text.isEmpty ? 1 : '\n'.allMatches(text).length + 1;
+    if (count != _lineCount) {
+      setState(() {
+        _lineCount = count;
+      });
+    }
+  }
+
+  // ---------------- 搜索 ----------------
+
+  void _recollectMatches() {
+    _matches.clear();
+    _currentMatchIndex = -1;
+    final q = _searchQuery.trim();
+    if (q.isEmpty) {
+      setState(() {});
+      return;
+    }
+    final text = _controller.text;
+    RegExp? regex;
+    try {
+      if (_isRegex) {
+        regex = RegExp(q, caseSensitive: _caseSensitive, multiLine: false);
+      }
+    } catch (_) {
+      regex = null;
+    }
+
+    if (_isRegex) {
+      if (regex != null) {
+        for (final m in regex.allMatches(text)) {
+          if (m.start == m.end) continue;
+          _matches.add(TextRange(start: m.start, end: m.end));
+        }
+      }
+    } else if (_caseSensitive) {
+      int idx = 0;
+      while ((idx = text.indexOf(q, idx)) != -1) {
+        _matches.add(TextRange(start: idx, end: idx + q.length));
+        idx += q.length;
+      }
+    } else {
+      final lower = text.toLowerCase();
+      final ql = q.toLowerCase();
+      int idx = 0;
+      while ((idx = lower.indexOf(ql, idx)) != -1) {
+        _matches.add(TextRange(start: idx, end: idx + q.length));
+        idx += q.length;
+      }
+    }
+    if (_matches.isNotEmpty) {
+      _currentMatchIndex = 0;
+      _selectCurrent();
+    }
+    setState(() {});
+  }
+
+  void _selectCurrent() {
+    if (_currentMatchIndex < 0 || _currentMatchIndex >= _matches.length) return;
+    final range = _matches[_currentMatchIndex];
+    // 在下一帧设置 selection，避免和输入冲突
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        _controller.selection = TextSelection(
+          baseOffset: range.start,
+          extentOffset: range.end,
+          affinity: TextAffinity.downstream,
+        );
+        // 通过 bringIntoView 让光标所在位置滚动到可见
+        _bringSelectionIntoView(range);
+      } catch (_) {}
+    });
+  }
+
+  Future<void> _bringSelectionIntoView(TextRange range) async {
+    // Flutter 的 TextField 会在 selection 变化时自动滚动
+    await Future.delayed(const Duration(milliseconds: 20));
+    if (!mounted) return;
+    // 尝试再设置一次触发滚动
+    try {
+      _controller.selection = TextSelection.collapsed(
+        offset: range.start,
+      );
+      await Future.delayed(const Duration(milliseconds: 10));
+      if (!mounted) return;
+      _controller.selection = TextSelection(
+        baseOffset: range.start,
+        extentOffset: range.end,
+      );
+    } catch (_) {}
+  }
+
+  void _nextMatch() {
+    if (_matches.isEmpty) return;
+    _currentMatchIndex = (_currentMatchIndex + 1) % _matches.length;
+    setState(() {});
+    _selectCurrent();
+  }
+
+  void _prevMatch() {
+    if (_matches.isEmpty) return;
+    _currentMatchIndex = _currentMatchIndex <= 0
+        ? _matches.length - 1
+        : _currentMatchIndex - 1;
+    setState(() {});
+    _selectCurrent();
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _showSearchBar = false;
+      _searchQuery = '';
+      _caseSensitive = false;
+      _isRegex = false;
+      _matches.clear();
+      _currentMatchIndex = -1;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildHeader(theme),
-        Expanded(child: _buildEditor(theme)),
-      ],
+    return Focus(
+      onKeyEvent: _onKeyEvent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(theme),
+          if (_showSearchBar) _buildSearchBarWrap(theme),
+          Expanded(child: _buildEditor(theme)),
+        ],
+      ),
+    );
+  }
+
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final ctrl = HardwareKeyboard.instance.isControlPressed;
+      final shift = HardwareKeyboard.instance.isShiftPressed;
+      if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
+        setState(() => _showSearchBar = true);
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.escape && _showSearchBar) {
+        _closeSearch();
+        return KeyEventResult.handled;
+      }
+      if (_showSearchBar && _matches.isNotEmpty) {
+        if (event.logicalKey == LogicalKeyboardKey.enter) {
+          if (shift) {
+            _prevMatch();
+          } else {
+            _nextMatch();
+          }
+          return KeyEventResult.handled;
+        }
+      }
+    }
+    // 原有快捷键：Ctrl+Shift+L 格式化、Ctrl+S 保存
+    if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
+      final s = HardwareKeyboard.instance.isShiftPressed;
+      if (s && event.logicalKey == LogicalKeyboardKey.keyL) {
+        _formatJson();
+        return KeyEventResult.handled;
+      }
+      if (!s && event.logicalKey == LogicalKeyboardKey.keyS) {
+        widget.onSave?.call();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Widget _buildSearchBarWrap(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: Color(CommonConstants.sidebarColorValue),
+        border: Border(
+          bottom: BorderSide(color: Color(CommonConstants.borderColorValue)),
+        ),
+      ),
+      alignment: Alignment.centerRight,
+      child: SearchQueryBar(
+        inputWidth: 240,
+        height: 28,
+        currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
+        totalMatches:
+            _matches.isEmpty && _searchQuery.trim().isEmpty ? null : _matches.length,
+        onQueryChanged: (q) {
+          _searchQuery = q;
+          _recollectMatches();
+        },
+        onCaseSensitiveChanged: (v) {
+          _caseSensitive = v;
+          _recollectMatches();
+        },
+        onRegexChanged: (v) {
+          _isRegex = v;
+          _recollectMatches();
+        },
+        onPrev: _matches.isEmpty ? null : _prevMatch,
+        onNext: _matches.isEmpty ? null : _nextMatch,
+        onClose: _closeSearch,
+      ),
     );
   }
 
@@ -89,6 +308,12 @@ class _JsonEditorState extends State<JsonEditor> {
                 ),
           ),
           const Spacer(),
+          _buildActionButton(
+            theme,
+            icon: Icons.search,
+            tooltip: '搜索 (Ctrl+F)',
+            onTap: () => setState(() => _showSearchBar = !_showSearchBar),
+          ),
           _buildActionButton(
             theme,
             icon: Icons.format_align_left,
@@ -132,28 +357,79 @@ class _JsonEditorState extends State<JsonEditor> {
       color: Color(CommonConstants.textPrimaryColorValue),
       height: 1.5,
     );
+    final lineHeight = 13 * 1.5;
 
-    return Focus(
-      onKeyEvent: _onKeyEvent,
-      child: CodeTheme(
-        data: CodeThemeData(styles: _buildHighlightStyles()),
-        child: CodeField(
-          controller: _controller,
-          readOnly: widget.readOnly,
-          expands: true,
-          textStyle: baseStyle,
-          background: Color(CommonConstants.surfaceColorValue),
-          gutterStyle: GutterStyle(
-            showLineNumbers: true,
-            showFoldingHandles: true,
-            showErrors: false,
-            width: 64,
-            background: Color(CommonConstants.sidebarColorValue),
-            textStyle: TextStyle(
-              color: Color(CommonConstants.textSecondaryColorValue),
+    return Container(
+      color: Color(CommonConstants.surfaceColorValue),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildLineNumbers(lineHeight),
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollUpdateNotification) {
+                  final offset = notification.metrics.pixels;
+                  if (_lineNumberScrollController.hasClients &&
+                      _lineNumberScrollController.offset != offset) {
+                    _lineNumberScrollController.jumpTo(offset);
+                  }
+                }
+                return false;
+              },
+              child: CodeTheme(
+                data: CodeThemeData(styles: _buildHighlightStyles()),
+                child: CodeField(
+                  controller: _controller,
+                  readOnly: widget.readOnly,
+                  expands: true,
+                  textStyle: baseStyle,
+                  background: Color(CommonConstants.surfaceColorValue),
+                  gutterStyle: GutterStyle(
+                    showLineNumbers: false,
+                    showFoldingHandles: false,
+                    showErrors: false,
+                    width: 0,
+                  ),
+                  onChanged: widget.onChanged,
+                ),
+              ),
             ),
           ),
-          onChanged: widget.onChanged,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineNumbers(double lineHeight) {
+    return Container(
+      width: 56,
+      color: Color(CommonConstants.sidebarColorValue),
+      child: RawScrollbar(
+        controller: _lineNumberScrollController,
+        thumbVisibility: false,
+        trackVisibility: false,
+        child: ListView.builder(
+          controller: _lineNumberScrollController,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.symmetric(vertical: 8),
+          itemCount: _lineCount,
+          itemExtent: lineHeight,
+          itemBuilder: (context, index) {
+            return Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 12),
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                  fontFamily: 'Consolas',
+                  fontSize: 12,
+                  color: Color(CommonConstants.textSecondaryColorValue),
+                  height: 1.5,
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -172,21 +448,6 @@ class _JsonEditorState extends State<JsonEditor> {
         fontStyle: FontStyle.italic,
       ),
     };
-  }
-
-  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
-      final shift = HardwareKeyboard.instance.isShiftPressed;
-      if (shift && event.logicalKey == LogicalKeyboardKey.keyL) {
-        _formatJson();
-        return KeyEventResult.handled;
-      }
-      if (!shift && event.logicalKey == LogicalKeyboardKey.keyS) {
-        widget.onSave?.call();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
   }
 
   void _formatJson() {
