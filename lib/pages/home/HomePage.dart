@@ -143,8 +143,6 @@ class _ExternalLinks extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final iconColor = theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -160,7 +158,6 @@ class _ExternalLinks extends StatelessWidget {
                 'images/deepseek.webp',
                 width: 16,
                 height: 16,
-                color: iconColor,
               ),
             ),
           ),
@@ -178,7 +175,6 @@ class _ExternalLinks extends StatelessWidget {
                 'images/github.webp',
                 width: 16,
                 height: 16,
-                color: iconColor,
               ),
             ),
           ),

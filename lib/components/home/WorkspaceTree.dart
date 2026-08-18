@@ -218,8 +218,10 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
               child: TextField(
                 controller: _searchController,
                 onChanged: (v) => setState(() => _searchQuery = v),
+                style: const TextStyle(fontSize: 12),
                 decoration: const InputDecoration(
                   hintText: '搜索文档',
+                  hintStyle: TextStyle(fontSize: 11, color: Colors.grey),
                   border: InputBorder.none,
                   isDense: true,
                   contentPadding: EdgeInsets.symmetric(vertical: 6),
