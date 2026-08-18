@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'package:json_layer/contants/CommonConstant.dart';
@@ -48,21 +49,105 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              '离线空间',
+              '工作空间',
               style: theme.textTheme.titleSmall,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.add, size: 18),
+          _buildHeaderButton(
+            icon: Icons.add,
             tooltip: '新建',
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'folder', child: Text('新建文件夹')),
-              const PopupMenuItem(value: 'json', child: Text('新建 JSON 文档')),
-            ],
-            onSelected: _onCreateItem,
+            onTap: () => _showCreateMenu(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
+        splashColor: CommonConstants.primaryOverlay(0.08),
+        highlightColor: CommonConstants.primaryOverlay(0.05),
+        child: Padding(
+          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
+          child: Icon(
+            icon,
+            size: 16,
+            color: Color(CommonConstants.textSecondaryColorValue),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCreateMenu() {
+    final renderBox = context.findRenderObject() as RenderBox;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        renderBox.localToGlobal(Offset.zero),
+        renderBox.localToGlobal(renderBox.size.bottomRight(Offset.zero)),
+      ),
+      Offset.zero & MediaQuery.of(context).size,
+    );
+    showMenu<String>(
+      context: context,
+      position: position,
+      color: Color(CommonConstants.surfaceColorValue),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
+        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+      ),
+      items: [
+        _buildMenuItem(
+          '新建文件夹', Icons.create_new_folder, 'folder',
+          iconColor: Color(CommonConstants.primaryColorValue),
+        ),
+        _buildMenuItem(
+          '新建 JSON 文档', Icons.insert_drive_file, 'json',
+          iconColor: Color(CommonConstants.primaryColorValue),
+        ),
+      ],
+    ).then((value) {
+      if (value != null) _onCreateItem(value);
+    });
+  }
+
+  PopupMenuItem<String> _buildMenuItem(
+    String label,
+    IconData icon,
+    String value, {
+    Color? iconColor,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Container(
+        height: CommonConstants.menuItemHeight,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: iconColor ?? Color(CommonConstants.textSecondaryColorValue),
+            ),
+            const SizedBox(width: CommonConstants.menuItemPadding),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: CommonConstants.menuFontSize,
+                color: Color(CommonConstants.textPrimaryColorValue),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -317,30 +402,81 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(title),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
         content: TextField(
           controller: controller,
-          decoration: InputDecoration(hintText: hintText),
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _confirmCreate(controller, onSubmit, ctx),
+          decoration: InputDecoration(
+            hintText: hintText,
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide:
+                  BorderSide(color: Color(CommonConstants.borderColorValue)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide:
+                  BorderSide(color: Color(CommonConstants.borderColorValue)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.primary, width: 1.5),
+            ),
+          ),
         ),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.pop(ctx),
+            style: OutlinedButton.styleFrom(
+              foregroundColor:
+                  Color(CommonConstants.textPrimaryColorValue),
+              side: BorderSide(
+                  color: Color(CommonConstants.borderColorValue)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                onSubmit(name);
-                Navigator.pop(ctx);
-              }
-            },
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => _confirmCreate(controller, onSubmit, ctx),
             child: const Text('确定'),
           ),
         ],
       ),
     );
+  }
+
+  void _confirmCreate(
+    TextEditingController controller,
+    Future<void> Function(String name) onSubmit,
+    BuildContext ctx,
+  ) {
+    final name = controller.text.trim();
+    if (name.isNotEmpty) {
+      onSubmit(name);
+      Navigator.pop(ctx);
+    }
   }
 
   /// 根据指针全局坐标计算右键菜单位置（跟随光标）。
@@ -353,14 +489,29 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   }
 
   void _showFolderMenu(DocumentItem node, Offset globalPosition) {
-    showMenu(
+    showMenu<String>(
       context: context,
       position: _menuPosition(globalPosition),
+      color: Color(CommonConstants.surfaceColorValue),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
+        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+      ),
       items: [
-        const PopupMenuItem(value: 'rename', child: Text('重命名')),
-        const PopupMenuItem(value: 'delete', child: Text('删除')),
-        const PopupMenuItem(value: 'new_sub_folder', child: Text('新建子文件夹')),
-        const PopupMenuItem(value: 'new_doc', child: Text('新建文档')),
+        _buildMenuItem('重命名', Icons.edit, 'rename'),
+        _buildMenuItem(
+          '删除', Icons.delete_outline, 'delete',
+          iconColor: const Color(0xFFDC2626),
+        ),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem(
+          '新建子文件夹', Icons.create_new_folder, 'new_sub_folder',
+          iconColor: Color(CommonConstants.primaryColorValue),
+        ),
+        _buildMenuItem(
+          '新建文档', Icons.insert_drive_file, 'new_doc',
+          iconColor: Color(CommonConstants.primaryColorValue),
+        ),
       ],
     ).then((value) {
       if (value == null || !mounted) return;
@@ -386,13 +537,22 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   }
 
   void _showDocumentMenu(DocumentItem node, Offset globalPosition) {
-    showMenu(
+    showMenu<String>(
       context: context,
       position: _menuPosition(globalPosition),
+      color: Color(CommonConstants.surfaceColorValue),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
+        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+      ),
       items: [
-        const PopupMenuItem(value: 'open', child: Text('打开')),
-        const PopupMenuItem(value: 'rename', child: Text('重命名')),
-        const PopupMenuItem(value: 'delete', child: Text('删除')),
+        _buildMenuItem('打开', Icons.open_in_new, 'open'),
+        const PopupMenuDivider(height: 8),
+        _buildMenuItem('重命名', Icons.edit, 'rename'),
+        _buildMenuItem(
+          '删除', Icons.delete_outline, 'delete',
+          iconColor: const Color(0xFFDC2626),
+        ),
       ],
     ).then((value) {
       if (value == null || !mounted) return;
@@ -412,24 +572,63 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('重命名'),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: const Text(
+          '重命名',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => _confirmRename(controller, node, store, ctx),
+          decoration: InputDecoration(
+            isDense: true,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide:
+                  BorderSide(color: Color(CommonConstants.borderColorValue)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide:
+                  BorderSide(color: Color(CommonConstants.borderColorValue)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                  color: Theme.of(context).colorScheme.primary, width: 1.5),
+            ),
+          ),
         ),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.pop(ctx),
+            style: OutlinedButton.styleFrom(
+              foregroundColor:
+                  Color(CommonConstants.textPrimaryColorValue),
+              side: BorderSide(
+                  color: Color(CommonConstants.borderColorValue)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty && name != node.name) {
-                store.renameItem(node.path, name);
-                Navigator.pop(ctx);
-              }
-            },
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => _confirmRename(controller, node, store, ctx),
             child: const Text('确定'),
           ),
         ],
@@ -437,30 +636,81 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     );
   }
 
+  void _confirmRename(
+    TextEditingController controller,
+    DocumentItem node,
+    WorkspaceStore store,
+    BuildContext ctx,
+  ) {
+    final name = controller.text.trim();
+    if (name.isNotEmpty && name != node.name) {
+      store.renameItem(node.path, name);
+      Navigator.pop(ctx);
+    }
+  }
+
   void _showDeleteConfirm(DocumentItem node, WorkspaceStore store) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('确认删除'),
-        content: Text('确定删除 "${node.name}" 吗？此操作不可恢复。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
+      builder: (ctx) {
+        final focusNode = FocusNode();
+        return RawKeyboardListener(
+          focusNode: focusNode,
+          autofocus: true,
+          onKey: (event) {
+            if (event is RawKeyDownEvent &&
+                event.logicalKey == LogicalKeyboardKey.enter) {
               store.deleteItem(node.path);
               Navigator.pop(ctx);
-            },
-            child: const Text('删除'),
+            }
+          },
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: const Text(
+              '确认删除',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            content: Text(
+              '确定删除 "${node.name}" 吗？此操作不可恢复。',
+              style: TextStyle(
+                fontSize: 14,
+                color: Color(CommonConstants.textSecondaryColorValue),
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      Color(CommonConstants.textPrimaryColorValue),
+                  side: BorderSide(
+                      color: Color(CommonConstants.borderColorValue)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFDC2626),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: () {
+                  store.deleteItem(node.path);
+                  Navigator.pop(ctx);
+                },
+                child: const Text('删除'),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

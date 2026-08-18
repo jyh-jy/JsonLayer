@@ -15,6 +15,14 @@ class DocumentTabs extends StatefulWidget {
 }
 
 class _DocumentTabsState extends State<DocumentTabs> {
+  final ScrollController _tabScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _tabScrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -30,19 +38,40 @@ class _DocumentTabsState extends State<DocumentTabs> {
           return Row(
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: tabs
-                        .map((tab) => _buildTab(tab, tabStore, theme))
-                        .toList(),
-                  ),
-                ),
+                child: _buildScrollableTabs(tabs, tabStore, theme),
               ),
               _buildAddButton(tabStore, theme),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildScrollableTabs(List<DocumentTab> tabs, TabStore tabStore, ThemeData theme) {
+    return Listener(
+      onPointerSignal: (signal) {
+        if (signal is PointerScrollEvent) {
+          // 将垂直滚轮转换为水平滚动
+          if (_tabScrollController.hasClients) {
+            final delta = signal.scrollDelta.dy != 0
+                ? signal.scrollDelta.dy
+                : signal.scrollDelta.dx;
+            final maxExtent = _tabScrollController.position.maxScrollExtent;
+            final newOffset = (_tabScrollController.offset + delta).clamp(0.0, maxExtent);
+            _tabScrollController.jumpTo(newOffset);
+          }
+        }
+      },
+      child: SingleChildScrollView(
+        controller: _tabScrollController,
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(
+          children: tabs
+              .map((tab) => _buildTab(tab, tabStore, theme))
+              .toList(),
+        ),
       ),
     );
   }
@@ -165,22 +194,27 @@ class _DocumentTabsState extends State<DocumentTabs> {
   Widget _buildAddButton(TabStore tabStore, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: PopupMenuButton<DocumentType>(
-        icon: Icon(
-          Icons.add,
-          size: 16,
-          color: Color(CommonConstants.textSecondaryColorValue),
+      child: Tooltip(
+        message: '新建 JSON 文档',
+        child: InkWell(
+          onTap: () => _createJsonDocument(),
+          borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
+          splashColor: CommonConstants.primaryOverlay(0.08),
+          highlightColor: CommonConstants.primaryOverlay(0.05),
+          child: Padding(
+            padding: const EdgeInsets.all(CommonConstants.buttonPadding),
+            child: Icon(
+              Icons.add,
+              size: 16,
+              color: Color(CommonConstants.textSecondaryColorValue),
+            ),
+          ),
         ),
-        tooltip: '新建文档',
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: DocumentType.json, child: Text('JSON 文档')),
-        ],
-        onSelected: (type) => _createJsonDocument(),
       ),
     );
   }
 
-  /// 新建 JSON 文档：命名 → 落盘创建文件 → 打开标签（绑定磁盘路径）。
+  /// 新建 JSON 文档：自动命名 → 落盘创建文件 → 打开标签。
   Future<void> _createJsonDocument() async {
     final workspaceStore = context.read<WorkspaceStore>();
     final root = workspaceStore.root;
@@ -191,8 +225,12 @@ class _DocumentTabsState extends State<DocumentTabs> {
       return;
     }
 
-    final name = await _promptFileName();
-    if (name == null || name.isEmpty || !mounted) return;
+    // 自动生成唯一文件名，无需弹窗
+    final now = DateTime.now();
+    final timestamp =
+        '${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_'
+        '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+    final name = '未命名_$timestamp.json';
 
     try {
       final item = await workspaceStore.createDocument(
@@ -209,31 +247,5 @@ class _DocumentTabsState extends State<DocumentTabs> {
         );
       }
     }
-  }
-
-  /// 弹出命名对话框，返回输入的文件名（未输入返回 null）。
-  Future<String?> _promptFileName() {
-    final controller = TextEditingController(text: '未命名.json');
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('新建 JSON 文档'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: '文件名称'),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
   }
 }

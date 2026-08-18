@@ -125,7 +125,7 @@ class _WelcomePageState extends State<WelcomePage> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-            '${CommonConstants.appName} 离线空间',
+            '${CommonConstants.appName} 工作空间',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   fontSize: 18,

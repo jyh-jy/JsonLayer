@@ -38,6 +38,7 @@ class _JsonEditorState extends State<JsonEditor> {
   late _JsonCodeController _controller;
   final ScrollController _lineNumberScrollController = ScrollController();
   final ScrollController _horizontalScrollController = ScrollController();
+  final ScrollController _verticalScrollController = ScrollController();
   final FocusNode _editorFocusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
   int _lineCount = 1;
@@ -79,6 +80,7 @@ class _JsonEditorState extends State<JsonEditor> {
   void dispose() {
     _controller.removeListener(_onTextChanged);
     _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
     _lineNumberScrollController.dispose();
     _editorFocusNode.dispose();
     _searchFocusNode.dispose();
@@ -364,10 +366,16 @@ class _JsonEditorState extends State<JsonEditor> {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(3),
+        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
+        splashColor: CommonConstants.primaryOverlay(0.08),
+        highlightColor: CommonConstants.primaryOverlay(0.05),
         child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Icon(icon, size: 14, color: Color(CommonConstants.textSecondaryColorValue)),
+          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
+          child: Icon(
+            icon,
+            size: CommonConstants.buttonIconSize,
+            color: Color(CommonConstants.textSecondaryColorValue),
+          ),
         ),
       ),
     );
@@ -381,6 +389,7 @@ class _JsonEditorState extends State<JsonEditor> {
       height: 1.5,
     );
     final lineHeight = 13 * 1.5;
+    final maxLines = math.max(_lineCount, 1);
 
     return Container(
       color: Color(CommonConstants.surfaceColorValue),
@@ -389,46 +398,58 @@ class _JsonEditorState extends State<JsonEditor> {
         children: [
           _buildLineNumbers(lineHeight),
           Expanded(
-            child: NotificationListener<ScrollNotification>(
-              onNotification: (notification) {
-                if (notification is ScrollUpdateNotification) {
-                  final offset = notification.metrics.pixels;
-                  if (_lineNumberScrollController.hasClients &&
-                      _lineNumberScrollController.offset != offset) {
-                    _lineNumberScrollController.jumpTo(offset);
-                  }
-                }
-                return false;
-              },
-              child: CodeTheme(
-                data: CodeThemeData(styles: _buildHighlightStyles()),
-                child: _wrapInScrollView(
-                  Listener(
-                    onPointerDown: _handlePointerDown,
-                    child: TextField(
-                      focusNode: _editorFocusNode,
-                      controller: _controller,
-                      readOnly: widget.readOnly,
-                      expands: true,
-                      maxLines: null,
-                      minLines: null,
-                      style: baseStyle,
-                      cursorColor: Color(CommonConstants.textPrimaryColorValue),
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      decoration: const InputDecoration(
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 16),
-                        disabledBorder: InputBorder.none,
-                        border: InputBorder.none,
-                        focusedBorder: InputBorder.none,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final minHeight = constraints.maxHeight;
+                return NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollUpdateNotification) {
+                      final offset = notification.metrics.pixels;
+                      if (_lineNumberScrollController.hasClients &&
+                          _lineNumberScrollController.offset != offset) {
+                        _lineNumberScrollController.jumpTo(offset);
+                      }
+                    }
+                    return false;
+                  },
+                  child: CodeTheme(
+                    data: CodeThemeData(styles: _buildHighlightStyles()),
+                    child: Scrollbar(
+                      controller: _verticalScrollController,
+                      child: SingleChildScrollView(
+                        controller: _verticalScrollController,
+                        child: _wrapInScrollView(
+                          minHeight: minHeight,
+                          Listener(
+                            onPointerDown: _handlePointerDown,
+                            child: TextField(
+                              focusNode: _editorFocusNode,
+                              controller: _controller,
+                              readOnly: widget.readOnly,
+                              maxLines: maxLines,
+                              style: baseStyle,
+                              cursorColor:
+                                  Color(CommonConstants.textPrimaryColorValue),
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              decoration: const InputDecoration(
+                                isCollapsed: true,
+                                contentPadding:
+                                    EdgeInsets.symmetric(vertical: 16),
+                                disabledBorder: InputBorder.none,
+                                border: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                              ),
+                              onChanged: widget.onChanged,
+                            ),
+                          ),
+                          baseStyle,
+                        ),
                       ),
-                      onChanged: widget.onChanged,
                     ),
                   ),
-                  baseStyle,
-                ),
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -436,27 +457,27 @@ class _JsonEditorState extends State<JsonEditor> {
     );
   }
 
-  Widget _wrapInScrollView(Widget codeField, TextStyle textStyle) {
-    final intrinsic = IntrinsicWidth(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 0),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Text(_longestLine, style: textStyle),
+  Widget _wrapInScrollView(
+    Widget codeField,
+    TextStyle textStyle, {
+    required double minHeight,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          controller: _horizontalScrollController,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minWidth: constraints.maxWidth,
+              minHeight: minHeight,
+            ),
+            child: IntrinsicWidth(
+              child: codeField,
             ),
           ),
-          Expanded(child: codeField),
-        ],
-      ),
-    );
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      controller: _horizontalScrollController,
-      child: intrinsic,
+        );
+      },
     );
   }
 

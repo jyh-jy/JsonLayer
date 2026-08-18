@@ -79,7 +79,7 @@ class _HomePageState extends State<HomePage> {
                       builder: (context, store, _) {
                         return Expanded(
                           child: Text(
-                            '离线空间 · ${store.workspacePath}',
+                            '工作空间 · ${store.workspacePath}',
                             style: theme.textTheme.bodySmall?.copyWith(
                                   color: Color(CommonConstants.textSecondaryColorValue),
                                 ),

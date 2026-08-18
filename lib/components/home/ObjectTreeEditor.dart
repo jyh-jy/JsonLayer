@@ -364,10 +364,16 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
+        splashColor: CommonConstants.primaryOverlay(0.08),
+        highlightColor: CommonConstants.primaryOverlay(0.05),
         child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Icon(icon, size: 16, color: Color(CommonConstants.textSecondaryColorValue)),
+          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
+          child: Icon(
+            icon,
+            size: CommonConstants.buttonIconSize,
+            color: Color(CommonConstants.textSecondaryColorValue),
+          ),
         ),
       ),
     );
@@ -798,47 +804,117 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('新增字段'),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        title: const Text(
+          '新增字段',
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: controller,
-              decoration: const InputDecoration(labelText: '字段名'),
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              decoration: InputDecoration(
+                labelText: '字段名',
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide:
+                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide:
+                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary, width: 1.5),
+                ),
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             TextField(
               controller: valueController,
-              decoration: const InputDecoration(labelText: '默认值 (JSON 格式)'),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _confirmAddField(controller, valueController, ctx),
+              decoration: InputDecoration(
+                labelText: '默认值 (JSON 格式)',
+                isDense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide:
+                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide:
+                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary, width: 1.5),
+                ),
+              ),
             ),
           ],
         ),
         actions: [
-          TextButton(
+          OutlinedButton(
             onPressed: () => Navigator.pop(ctx),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Color(CommonConstants.textPrimaryColorValue),
+              side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
             child: const Text('取消'),
           ),
           FilledButton(
-            onPressed: () {
-              final key = controller.text.trim();
-              if (key.isEmpty) return;
-              dynamic defaultValue = '';
-              try {
-                defaultValue = jsonDecode(valueController.text.trim());
-              } catch (_) {
-                defaultValue = valueController.text;
-              }
-              setState(() {
-                _parsed[key] = defaultValue;
-                widget.onChanged(const JsonEncoder.withIndent('  ').convert(_parsed));
-              });
-              Navigator.pop(ctx);
-            },
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => _confirmAddField(controller, valueController, ctx),
             child: const Text('确定'),
           ),
         ],
       ),
     );
+  }
+
+  void _confirmAddField(
+    TextEditingController controller,
+    TextEditingController valueController,
+    BuildContext ctx,
+  ) {
+    final key = controller.text.trim();
+    if (key.isEmpty) return;
+    dynamic defaultValue = '';
+    try {
+      defaultValue = jsonDecode(valueController.text.trim());
+    } catch (_) {
+      defaultValue = valueController.text;
+    }
+    setState(() {
+      _parsed[key] = defaultValue;
+      widget.onChanged(const JsonEncoder.withIndent('  ').convert(_parsed));
+    });
+    Navigator.pop(ctx);
   }
 }
 

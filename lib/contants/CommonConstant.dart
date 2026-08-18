@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 /// 全局共享常量集中管理。
 class CommonConstants {
   CommonConstants._();
@@ -37,4 +39,19 @@ class CommonConstants {
   static const int jsonBooleanColorValue = 0xFF0000FF; // 布尔：蓝
   static const int jsonNullColorValue = 0xFF6B7280; // null：灰
   static const int jsonPunctuationColorValue = 0xFF383A42; // 标点：深灰
+
+  /// 按钮尺寸常量
+  static const double buttonIconSize = 14.0;
+  static const double buttonPadding = 4.0;
+  static const double buttonRadius = 3.0;
+
+  /// 菜单样式常量
+  static const double menuItemHeight = 32.0;
+  static const double menuItemPadding = 12.0;
+  static const double menuBorderRadius = 8.0;
+  static const double menuFontSize = 13.0;
+
+  /// 获取主色透明度背景色（用于 hover/splash）
+  static Color primaryOverlay(double alpha) =>
+      Color(primaryColorValue).withValues(alpha: alpha);
 }
