@@ -37,9 +37,13 @@ class JsonEditor extends StatefulWidget {
 class _JsonEditorState extends State<JsonEditor> {
   late _JsonCodeController _controller;
   final ScrollController _lineNumberScrollController = ScrollController();
+  final ScrollController _horizontalScrollController = ScrollController();
   final FocusNode _editorFocusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
   int _lineCount = 1;
+  String _longestLine = '';
+  int _lastPointerDownTime = 0;
+  int _lastPointerDownPointer = -1;
 
   // 搜索相关
   bool _showSearchBar = false;
@@ -57,6 +61,7 @@ class _JsonEditorState extends State<JsonEditor> {
       ..onOpenSearch = _openSearch
       ..onCloseSearch = _closeSearch
       ..onNavigate = (shift) => shift ? _prevMatch() : _nextMatch();
+    _editorFocusNode.attach(context, onKeyEvent: _onEditorKeyEvent);
     _updateLineCount();
     _controller.addListener(_onTextChanged);
   }
@@ -73,6 +78,7 @@ class _JsonEditorState extends State<JsonEditor> {
   @override
   void dispose() {
     _controller.removeListener(_onTextChanged);
+    _horizontalScrollController.dispose();
     _lineNumberScrollController.dispose();
     _editorFocusNode.dispose();
     _searchFocusNode.dispose();
@@ -82,6 +88,15 @@ class _JsonEditorState extends State<JsonEditor> {
 
   void _onTextChanged() {
     _updateLineCount();
+    final text = _controller.text;
+    final longest = text.isEmpty
+        ? ''
+        : text.split('\n').reduce((a, b) => a.length > b.length ? a : b);
+    if (longest != _longestLine) {
+      setState(() {
+        _longestLine = longest;
+      });
+    }
   }
 
   void _updateLineCount() {
@@ -267,6 +282,10 @@ class _JsonEditorState extends State<JsonEditor> {
     return KeyEventResult.ignored;
   }
 
+  KeyEventResult _onEditorKeyEvent(FocusNode node, KeyEvent event) {
+    return _controller.onKey(event);
+  }
+
   Widget _buildSearchBarWrap(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
@@ -383,26 +402,61 @@ class _JsonEditorState extends State<JsonEditor> {
               },
               child: CodeTheme(
                 data: CodeThemeData(styles: _buildHighlightStyles()),
-                child: CodeField(
-                  controller: _controller,
-                  focusNode: _editorFocusNode,
-                  readOnly: widget.readOnly,
-                  expands: true,
-                  textStyle: baseStyle,
-                  background: Color(CommonConstants.surfaceColorValue),
-                  gutterStyle: GutterStyle(
-                    showLineNumbers: false,
-                    showFoldingHandles: false,
-                    showErrors: false,
-                    width: 0,
+                child: _wrapInScrollView(
+                  Listener(
+                    onPointerDown: _handlePointerDown,
+                    child: TextField(
+                      focusNode: _editorFocusNode,
+                      controller: _controller,
+                      readOnly: widget.readOnly,
+                      expands: true,
+                      maxLines: null,
+                      minLines: null,
+                      style: baseStyle,
+                      cursorColor: Color(CommonConstants.textPrimaryColorValue),
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: const InputDecoration(
+                        isCollapsed: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 16),
+                        disabledBorder: InputBorder.none,
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                      ),
+                      onChanged: widget.onChanged,
+                    ),
                   ),
-                  onChanged: widget.onChanged,
+                  baseStyle,
                 ),
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _wrapInScrollView(Widget codeField, TextStyle textStyle) {
+    final intrinsic = IntrinsicWidth(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 0),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Text(_longestLine, style: textStyle),
+            ),
+          ),
+          Expanded(child: codeField),
+        ],
+      ),
+    );
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      controller: _horizontalScrollController,
+      child: intrinsic,
     );
   }
 
@@ -481,6 +535,56 @@ class _JsonEditorState extends State<JsonEditor> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('压缩失败: $e')),
+      );
+    }
+  }
+
+  static const Set<String> _separators = {
+    ' ', '\t', '\n', '\r',
+    '{', '}', '[', ']', ':', ',', '"',
+  };
+
+  bool _isWordChar(String char) {
+    return !_separators.contains(char);
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final isDoubleTap = _lastPointerDownPointer == event.pointer &&
+        now - _lastPointerDownTime < 300;
+
+    _lastPointerDownTime = now;
+    _lastPointerDownPointer = event.pointer;
+
+    if (isDoubleTap) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _adjustWordSelection();
+      });
+    }
+  }
+
+  void _adjustWordSelection() {
+    final selection = _controller.selection;
+    if (selection.isCollapsed) return;
+
+    final text = _controller.text;
+    if (text.isEmpty) return;
+
+    int start = selection.start;
+    int end = selection.end;
+
+    while (start > 0 && _isWordChar(text[start - 1])) {
+      start--;
+    }
+
+    while (end < text.length && _isWordChar(text[end])) {
+      end++;
+    }
+
+    if (start != selection.start || end != selection.end) {
+      _controller.selection = TextSelection(
+        baseOffset: start,
+        extentOffset: end,
       );
     }
   }
