@@ -319,10 +319,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
           bottom: BorderSide(color: Color(CommonConstants.borderColorValue)),
         ),
       ),
-      alignment: Alignment.centerRight,
       child: SearchQueryBar(
-        inputWidth: 200,
-        height: 28,
         currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
         totalMatches: _matches.isEmpty && _searchQuery.trim().isEmpty
             ? null
@@ -331,17 +328,9 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
           _searchQuery = q;
           _recollectMatches();
         },
-        onCaseSensitiveChanged: (v) {
-          _caseSensitive = v;
-          _recollectMatches();
-        },
-        onRegexChanged: (v) {
-          _isRegex = v;
-          _recollectMatches();
-        },
-        onPrev: _matches.isEmpty ? null : _prevMatch,
-        onNext: _matches.isEmpty ? null : _nextMatch,
         onClose: _closeSearch,
+        onNavigate: (shift) => shift ? _prevMatch() : _nextMatch(),
+        onEscape: _closeSearch,
       ),
     );
   }

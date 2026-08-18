@@ -33,7 +33,7 @@ class JsonEditor extends StatefulWidget {
 }
 
 class _JsonEditorState extends State<JsonEditor> {
-  late CodeController _controller;
+  late _JsonCodeController _controller;
   final ScrollController _lineNumberScrollController = ScrollController();
   int _lineCount = 1;
 
@@ -48,10 +48,11 @@ class _JsonEditorState extends State<JsonEditor> {
   @override
   void initState() {
     super.initState();
-    _controller = CodeController(
-      text: widget.content,
-      language: json_highlight.json,
-    );
+    _controller = _JsonCodeController(text: widget.content);
+    _controller
+      ..onOpenSearch = _openSearch
+      ..onCloseSearch = _closeSearch
+      ..onNavigate = (shift) => shift ? _prevMatch() : _nextMatch();
     _updateLineCount();
     _controller.addListener(_onTextChanged);
   }
@@ -188,7 +189,13 @@ class _JsonEditorState extends State<JsonEditor> {
     _selectCurrent();
   }
 
+  void _openSearch() {
+    setState(() => _showSearchBar = true);
+    _controller.searchBarVisible = true;
+  }
+
   void _closeSearch() {
+    _controller.searchBarVisible = false;
     setState(() {
       _showSearchBar = false;
       _searchQuery = '';
@@ -220,7 +227,7 @@ class _JsonEditorState extends State<JsonEditor> {
       final ctrl = HardwareKeyboard.instance.isControlPressed;
       final shift = HardwareKeyboard.instance.isShiftPressed;
       if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
-        setState(() => _showSearchBar = true);
+        _openSearch();
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape && _showSearchBar) {
@@ -262,10 +269,7 @@ class _JsonEditorState extends State<JsonEditor> {
           bottom: BorderSide(color: Color(CommonConstants.borderColorValue)),
         ),
       ),
-      alignment: Alignment.centerRight,
       child: SearchQueryBar(
-        inputWidth: 240,
-        height: 28,
         currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
         totalMatches:
             _matches.isEmpty && _searchQuery.trim().isEmpty ? null : _matches.length,
@@ -273,17 +277,9 @@ class _JsonEditorState extends State<JsonEditor> {
           _searchQuery = q;
           _recollectMatches();
         },
-        onCaseSensitiveChanged: (v) {
-          _caseSensitive = v;
-          _recollectMatches();
-        },
-        onRegexChanged: (v) {
-          _isRegex = v;
-          _recollectMatches();
-        },
-        onPrev: _matches.isEmpty ? null : _prevMatch,
-        onNext: _matches.isEmpty ? null : _nextMatch,
         onClose: _closeSearch,
+        onNavigate: (shift) => shift ? _prevMatch() : _nextMatch(),
+        onEscape: _closeSearch,
       ),
     );
   }
@@ -312,7 +308,7 @@ class _JsonEditorState extends State<JsonEditor> {
             theme,
             icon: Icons.search,
             tooltip: '搜索 (Ctrl+F)',
-            onTap: () => setState(() => _showSearchBar = !_showSearchBar),
+            onTap: () => _showSearchBar ? _closeSearch() : _openSearch(),
           ),
           _buildActionButton(
             theme,
@@ -478,5 +474,45 @@ class _JsonEditorState extends State<JsonEditor> {
         SnackBar(content: Text('压缩失败: $e')),
       );
     }
+  }
+}
+
+/// 自定义 [CodeController]：拦截 Ctrl+F 打开自己的搜索栏，避免触发
+/// flutter_code_editor 内置搜索框（它会弹出右下角覆盖层，而不是我们的组件）。
+///
+/// 搜索栏打开期间，编辑器聚焦时也能响应 Enter/Shift+Enter 导航与 Esc 关闭。
+class _JsonCodeController extends CodeController {
+  _JsonCodeController({required String text})
+      : super(text: text, language: json_highlight.json);
+
+  /// 搜索栏是否可见（由外部同步），用于决定 Enter/Esc 是否用于搜索。
+  bool searchBarVisible = false;
+
+  VoidCallback? onOpenSearch;
+  VoidCallback? onCloseSearch;
+  void Function(bool shift)? onNavigate;
+
+  @override
+  KeyEventResult onKey(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final ctrl = HardwareKeyboard.instance.isControlPressed;
+      if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
+        onOpenSearch?.call();
+        return KeyEventResult.handled;
+      }
+
+      if (searchBarVisible) {
+        if (event.logicalKey == LogicalKeyboardKey.escape) {
+          onCloseSearch?.call();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.enter) {
+          final shift = HardwareKeyboard.instance.isShiftPressed;
+          onNavigate?.call(shift);
+          return KeyEventResult.handled;
+        }
+      }
+    }
+    return super.onKey(event);
   }
 }
