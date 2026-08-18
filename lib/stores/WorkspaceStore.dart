@@ -150,6 +150,33 @@ class WorkspaceStore extends ChangeNotifier {
     }
   }
 
+  /// 从外部复制文件到工作空间
+  Future<DocumentItem?> copyExternalFile(String sourcePath, String destDirPath) async {
+    try {
+      final item = await _service.copyFileToWorkspace(sourcePath, destDirPath);
+      await reloadTree();
+      return item;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// 移动文件/文件夹
+  Future<void> moveItem(String sourcePath, String destDirPath) async {
+    try {
+      await _service.moveItem(sourcePath, destDirPath);
+      await reloadTree();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// 检查路径是否存在
+  Future<bool> exists(String path) => _service.exists(path);
+
   /// 在树中展开/折叠文件夹
   void toggleExpand(String folderPath) {
     if (_root == null) return;

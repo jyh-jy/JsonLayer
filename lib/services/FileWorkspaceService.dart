@@ -172,4 +172,46 @@ class FileWorkspaceService implements WorkspaceService {
     final dirExists = await Directory(path).exists();
     return fileExists || dirExists;
   }
+
+  @override
+  Future<DocumentItem> copyFileToWorkspace(
+    String sourcePath,
+    String destDirPath,
+  ) async {
+    final sourceFile = File(sourcePath);
+    if (!await sourceFile.exists()) {
+      throw Exception('源文件不存在: $sourcePath');
+    }
+    final fileName = sourcePath.split('\\').last;
+    final destName = _uniqueFileName(destDirPath, fileName.replaceAll('.json', ''), '.json');
+    final destPath = '$destDirPath\\$destName';
+    await sourceFile.copy(destPath);
+    return DocumentItem(
+      id: destPath,
+      name: destName,
+      path: destPath,
+      itemType: DocumentItemType.document,
+      documentType: DocumentType.json,
+    );
+  }
+
+  @override
+  Future<void> moveItem(
+    String sourcePath,
+    String destDirPath, {
+    int? index,
+  }) async {
+    final sourceFile = File(sourcePath);
+    final sourceDir = Directory(sourcePath);
+    final name = sourcePath.split('\\').last;
+    final newPath = '$destDirPath\\$name';
+
+    if (await sourceFile.exists()) {
+      if (sourcePath == newPath) return;
+      await sourceFile.rename(newPath);
+    } else if (await sourceDir.exists()) {
+      if (sourcePath == newPath) return;
+      await sourceDir.rename(newPath);
+    }
+  }
 }

@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:provider/provider.dart';
 
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/model/DocumentItem.dart';
 import 'package:json_layer/stores/TabStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
+
+/// 拖动数据（内部拖拽使用）
+class _DragData {
+  final String path;
+  final bool isFolder;
+  const _DragData({required this.path, required this.isFolder});
+}
 
 /// 左侧工作空间文件树组件。
 class WorkspaceTree extends StatefulWidget {
@@ -18,6 +26,8 @@ class WorkspaceTree extends StatefulWidget {
 class _WorkspaceTreeState extends State<WorkspaceTree> {
   final Set<String> _expandedFolderPaths = {};
   String? _highlightPath;
+  String? _dropTargetPath;
+  bool _isExternalDragging = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
@@ -238,9 +248,83 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           return const Center(child: Text('暂无数据'));
         }
         final filtered = _filterTree(root, _searchQuery);
-        return _buildTreeNode(filtered, 0);
+        return DropTarget(
+          onDragEntered: (_) => setState(() => _isExternalDragging = true),
+          onDragExited: (_) => setState(() => _isExternalDragging = false),
+          onDragDone: (details) async {
+            setState(() => _isExternalDragging = false);
+            await _handleExternalFilesDropped(details.files, root.path);
+          },
+          child: Stack(
+            children: [
+              _buildTreeNode(filtered, 0),
+              if (_isExternalDragging)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.white,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.upload_file,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 8),
+                            Text(
+                              '释放以导入 JSON 文件',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
       },
     );
+  }
+
+  /// 处理外部文件拖放
+  Future<void> _handleExternalFilesDropped(
+      List<DropItem> files, String destDirPath) async {
+    final store = context.read<WorkspaceStore>();
+    int successCount = 0;
+    for (final file in files) {
+      final fileName = file.path.split('\\').last;
+      final isJson = fileName.toLowerCase().endsWith('.json');
+      if (!isJson) continue;
+      try {
+        await store.copyExternalFile(file.path, destDirPath);
+        successCount++;
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('导入 $fileName 失败: $e')),
+          );
+        }
+      }
+    }
+    if (mounted && successCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('成功导入 $successCount 个文件')),
+      );
+    }
   }
 
   DocumentItem _filterTree(DocumentItem node, String query) {
@@ -279,6 +363,44 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
 
   Widget _buildFolderTile(DocumentItem node, int depth, bool isExpanded) {
     final theme = Theme.of(context);
+    final isDropTarget = _dropTargetPath == node.path;
+    return DragTarget<_DragData>(
+      onWillAcceptWithDetails: (details) {
+        // 不允许拖入自身或自身的子级
+        final data = details.data;
+        if (data.path == node.path) return false;
+        if (data.path.startsWith('${node.path}\\')) return false;
+        setState(() => _dropTargetPath = node.path);
+        return true;
+      },
+      onLeave: (data) {
+        if (_dropTargetPath == node.path) {
+          setState(() => _dropTargetPath = null);
+        }
+      },
+      onAcceptWithDetails: (details) {
+        setState(() => _dropTargetPath = null);
+        final data = details.data;
+        _handleInternalDrop(data, node.path);
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Draggable<_DragData>(
+          feedback: _buildDragFeedback(node),
+          childWhenDragging: Opacity(
+            opacity: 0.3,
+            child: _buildFolderTileContent(node, depth, isExpanded, theme),
+          ),
+          data: _DragData(path: node.path, isFolder: true),
+          child: _buildFolderTileContent(
+              node, depth, isExpanded, theme,
+              isDropTarget: isDropTarget),
+        );
+      },
+    );
+  }
+
+  Widget _buildFolderTileContent(DocumentItem node, int depth, bool isExpanded,
+      ThemeData theme, {bool isDropTarget = false}) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -300,6 +422,18 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           height: 26,
           padding: EdgeInsets.only(left: 8 + depth * 14),
           alignment: Alignment.centerLeft,
+          decoration: BoxDecoration(
+            color: isDropTarget
+                ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                : Colors.transparent,
+            border: isDropTarget
+                ? Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                    width: 1,
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(4),
+          ),
           child: Row(
             children: [
               Icon(
@@ -337,6 +471,19 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     final tabStore = context.read<TabStore>();
     final isOpen = tabStore.findByItemId(node.id) != null;
     final isHighlighted = _highlightPath == node.path;
+    return Draggable<_DragData>(
+      feedback: _buildDragFeedback(node),
+      childWhenDragging: Opacity(
+        opacity: 0.3,
+        child: _buildDocumentTileContent(node, depth, isOpen, isHighlighted, theme),
+      ),
+      data: _DragData(path: node.path, isFolder: false),
+      child: _buildDocumentTileContent(node, depth, isOpen, isHighlighted, theme),
+    );
+  }
+
+  Widget _buildDocumentTileContent(DocumentItem node, int depth, bool isOpen,
+      bool isHighlighted, ThemeData theme) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -380,6 +527,80 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         ),
       ),
     );
+  }
+
+  /// 构建拖动反馈 Widget
+  Widget _buildDragFeedback(DocumentItem node) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              node.isFolder ? Icons.folder : Icons.insert_drive_file,
+              size: 14,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              node.name,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 处理内部拖放（移动文件/文件夹）
+  Future<void> _handleInternalDrop(_DragData data, String destFolderPath) async {
+    if (data.path == destFolderPath) return;
+    if (data.path.startsWith('$destFolderPath\\')) return;
+
+    final store = context.read<WorkspaceStore>();
+    final name = data.path.split('\\').last;
+    final newPath = '$destFolderPath\\$name';
+
+    // 检查目标是否已存在同名文件
+    final exists = await store.exists(newPath);
+    if (exists && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('目标位置已存在 $name')),
+      );
+      return;
+    }
+
+    try {
+      await store.moveItem(data.path, destFolderPath);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已移动到 ${destFolderPath.split('\\').last}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('移动失败: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildFileIcon(DocumentType? type) {

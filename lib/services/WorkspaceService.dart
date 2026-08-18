@@ -37,6 +37,15 @@ abstract class WorkspaceService {
   /// 删除
   Future<void> delete(String path);
 
+  /// 将外部文件复制到工作空间指定目录
+  Future<DocumentItem> copyFileToWorkspace(
+    String sourcePath,
+    String destDirPath,
+  );
+
+  /// 移动文件/文件夹到目标目录（支持排序）
+  Future<void> moveItem(String sourcePath, String destDirPath, {int? index});
+
   /// 判断路径是否存在
   Future<bool> exists(String path);
 }
