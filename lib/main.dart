@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'package:json_layer/contants/CommonConstant.dart';
+import 'package:json_layer/contants/CommonConstant.dart' show CommonConstants, appTitle;
 import 'package:json_layer/pages/home/HomePage.dart';
 import 'package:json_layer/pages/welcome/WelcomePage.dart';
 import 'package:json_layer/routes/index.dart';
@@ -13,7 +13,7 @@ import 'package:json_layer/services/FileWorkspaceService.dart';
 import 'package:json_layer/services/WorkspaceService.dart';
 import 'package:json_layer/stores/EditorStore.dart';
 import 'package:json_layer/stores/TabStore.dart';
-import 'package:json_layer/stores/ThemeStore.dart';
+import 'package:json_layer/stores/ThemeStore.dart' show ThemeStore, kFixedBackgroundAsset, SkinMode;
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
 void main() async {
@@ -117,7 +117,10 @@ class JsonLayerApp extends StatelessWidget {
 }
 
 /// 在 MaterialApp 外层（它自己的 Scaffold 背景层之上 + 窗口之下）绘制
-/// 自定义背景图。只有 SkinMode.customBg 时显示，其他皮肤直接透明。
+/// 背景图。
+/// - SkinMode.light → 纯色 0xFFF5F6F8；
+/// - SkinMode.builtInBg → 内置 images/bgPic.jpg 整窗原样展示；
+/// - SkinMode.customBg → 用户上传的图整窗展示；文件不存在/读失败时回退到内置 bgPic.jpg。
 class _SkinBackgroundWrapper extends StatelessWidget {
   final ThemeStore store;
   final Widget child;
@@ -127,32 +130,61 @@ class _SkinBackgroundWrapper extends StatelessWidget {
     required this.child,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    if (!store.hasCustomBackground) {
-      // 无自定义图时直接用主题自带的背景色
-      final bgColor = store.skinMode == SkinMode.dark
-          ? store.darkTheme().scaffoldBackgroundColor
-          : store.lightTheme().scaffoldBackgroundColor;
-      return Container(color: bgColor, child: child);
-    }
-    final file = File(store.customBackgroundPath!);
+  /// Fallback 背景：内置 bgPic.jpg；若资源加载失败再用纯色
+  Widget _buildBuiltInFallback({required Widget child}) {
     return Stack(
       fit: StackFit.expand,
+      alignment: Alignment.topLeft,
       children: [
-        // 底：背景图，整窗铺满
-        Image.file(
-          file,
+        Image.asset(
+          kFixedBackgroundAsset,
           fit: BoxFit.cover,
           filterQuality: FilterQuality.medium,
           errorBuilder: (context, err, stack) =>
-            Container(color: store.lightTheme().scaffoldBackgroundColor),
+              Container(color: Color(CommonConstants.backgroundColorValue)),
         ),
-        // 一层柔和的暗化，保证面板对比度（不会影响视线，因为内容区面板本身不透明）
-        Container(
-          color: const Color(0xFFFFFFFF).withValues(alpha: 0.25),
+        child,
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final skin = store.skinMode;
+    if (skin == SkinMode.light) {
+      // 亮色模式：真实不透明底色（不用 lightTheme.scaffoldBackgroundColor，
+      // 它在 ThemeStore 里被故意设成 Colors.transparent 了）
+      final bgColor = Color(CommonConstants.backgroundColorValue);
+      return Container(color: bgColor, child: child);
+    }
+    if (skin == SkinMode.builtInBg) {
+      return _buildBuiltInFallback(child: child);
+    }
+    // SkinMode.customBg：优先展示用户上传的图，任何错误都回退到内置图
+    final customPath = store.customBackgroundPath;
+    if (customPath == null || customPath.isEmpty) {
+      return _buildBuiltInFallback(child: child);
+    }
+    return Stack(
+      fit: StackFit.expand,
+      alignment: Alignment.topLeft,
+      children: [
+        Image.file(
+          File(customPath),
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (context, err, stack) =>
+              // 自定义文件无法解码（损坏/格式不支持）→ 回退内置图
+              Positioned.fill(
+                child: Image.asset(
+                  kFixedBackgroundAsset,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, __, ___) =>
+                      Container(color: Color(CommonConstants.backgroundColorValue)),
+                ),
+              ),
         ),
-        // 顶：整棵 app
         child,
       ],
     );

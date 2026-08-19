@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/model/DocumentItem.dart';
 import 'package:json_layer/stores/TabStore.dart';
+import 'package:json_layer/stores/ThemeStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
 /// 顶部标签栏组件（参考 APIFOX Tab 设计）。
@@ -27,25 +30,40 @@ class _DocumentTabsState extends State<DocumentTabs> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      height: CommonConstants.tabBarHeight,
-      color: Color(CommonConstants.surfaceColorValue),
-      child: Consumer<TabStore>(
-        builder: (context, tabStore, _) {
-          final tabs = tabStore.tabs;
-          if (tabs.isEmpty) {
-            return _buildEmptyState(theme);
-          }
-          return Row(
-            children: [
-              Expanded(
-                child: _buildScrollableTabs(tabs, tabStore, theme),
-              ),
-              _buildAddButton(tabStore, theme),
-            ],
-          );
-        },
-      ),
+    return Consumer2<ThemeStore, TabStore>(
+      builder: (context, themeStore, tabStore, _) {
+        final hasBg = themeStore.hasAnyBackground;
+        final bar = Container(
+          height: CommonConstants.tabBarHeight,
+          color: hasBg
+              ? Color(CommonConstants.surfaceColorValue).withValues(alpha: 0.6)
+              : Color(CommonConstants.surfaceColorValue),
+          child: _buildTabBarContent(theme, tabStore),
+        );
+        if (!hasBg) return bar;
+        // 有背景图（内置或自定义）：固定高度的标签栏叠加毛玻璃
+        return ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: bar,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTabBarContent(ThemeData theme, TabStore tabStore) {
+    final tabs = tabStore.tabs;
+    if (tabs.isEmpty) {
+      return _buildEmptyState(theme);
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: _buildScrollableTabs(tabs, tabStore, theme),
+        ),
+        _buildAddButton(tabStore, theme),
+      ],
     );
   }
 

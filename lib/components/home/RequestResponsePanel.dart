@@ -45,44 +45,22 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
         if (activeTab == null) {
           return _buildEmptyState(theme);
         }
-        return _buildEditorArea(
-          theme: theme,
-          tab: activeTab,
+        // 打开了 JSON 文档：给编辑器区域套上不透明底色，让自定义背景不影响 JSON/对象模式区域
+        return Container(
+          color: Color(CommonConstants.backgroundColorValue),
+          child: _buildEditorArea(
+            theme: theme,
+            tab: activeTab,
+          ),
         );
       },
     );
   }
 
+  /// 未打开文档时：保持透明，让外层的自定义背景图（或亮色背景色）直接透过来显示，
+  /// 不再展示"请选择或新建一个文档"的提示文字。
   Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.description_outlined,
-            size: 64,
-            color: Color(CommonConstants.textSecondaryColorValue).withValues(alpha: 0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '请选择或新建一个文档',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Color(CommonConstants.textSecondaryColorValue),
-            ),
-          ),
-          const SizedBox(height: 32),
-          Text(
-            '波仔JsonLayer',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: Color(CommonConstants.textSecondaryColorValue).withValues(alpha: 0.5),
-              fontSize: 12,
-              letterSpacing: 2,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
+    return const SizedBox.expand();
   }
 
   Widget _buildEditorArea({
@@ -98,8 +76,12 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
           // - JSON/对象两种 Editor 常驻内存，模式切换零重建
           // - 对象模式避免每次切过去都重新 jsonDecode 整棵树并重建
           //   SelectableText/ListView（这是切换卡顿的最大来源）
+          //
+          // 注意：直接监听 _subTabController（ChangeNotifier），而不是
+          // _subTabController.animation!，因为后者在 Flutter 里是可空的，
+          // 初始化阶段的那一帧可能为 null 导致 Null check 崩溃。
           child: AnimatedBuilder(
-            animation: _subTabController.animation!,
+            animation: _subTabController,
             builder: (context, child) {
               return IndexedStack(
                 index: _subTabController.index,

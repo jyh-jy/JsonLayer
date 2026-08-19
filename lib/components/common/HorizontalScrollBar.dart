@@ -74,10 +74,15 @@ class _HorizontalScrollBarState extends State<HorizontalScrollBar>
   }
 
   /// 当前水平滚动位置（控制器仅挂载一个滚动视图时有效）。
+  /// 
+  /// 注意：避免使用 ScrollController.position getter，它在内部做了 `_positions!.single`
+  /// 断言式空安全。在 JsonEditor 刚构建、Scrollable 尚未 attach 的那一帧里，
+  /// hasClients 可能无法完全覆盖竞争条件，改用 positions 列表直接访问更安全。
   ScrollPosition? get _position {
     final controller = widget.controller;
-    if (!controller.hasClients || controller.positions.length != 1) return null;
-    return controller.position;
+    final positions = controller.positions; // 返回的是 Iterable<ScrollPosition>，永不为 null
+    if (positions.length != 1) return null;
+    return positions.first;
   }
 
   @override

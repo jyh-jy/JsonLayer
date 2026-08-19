@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -76,7 +77,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(CommonConstants.backgroundColorValue),
+      backgroundColor: Colors.transparent, // 由外部 _SkinBackgroundWrapper 负责背景（亮色纯色/自定义图片）
       body: Focus(
         onKeyEvent: _onGlobalKeyEvent,
         child: Column(
@@ -100,65 +101,95 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildAppBar() {
     final theme = Theme.of(context);
-    return Container(
-      height: CommonConstants.toolbarHeight,
-      color: Color(CommonConstants.surfaceColorValue),
-      child: Row(
-        children: [
-          Expanded(
-            child: DragToMoveArea(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.data_object,
-                      color: theme.colorScheme.primary,
-                      size: 18,
+    return Consumer<ThemeStore>(
+      builder: (context, themeStore, _) {
+        final hasBg = themeStore.hasAnyBackground;
+        final bar = Container(
+          height: CommonConstants.toolbarHeight,
+          color: hasBg
+              ? Color(CommonConstants.surfaceColorValue).withValues(alpha: 0.65)
+              : Color(CommonConstants.surfaceColorValue),
+          child: Row(
+            children: [
+              Expanded(
+                child: DragToMoveArea(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.data_object,
+                          color: theme.colorScheme.primary,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          CommonConstants.appName,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(width: 20),
+                        Consumer<WorkspaceStore>(
+                          builder: (context, store, _) {
+                            return Expanded(
+                              child: Text(
+                                '工作空间 · ${store.workspacePath}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Color(CommonConstants.textSecondaryColorValue),
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      CommonConstants.appName,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(width: 20),
-                    Consumer<WorkspaceStore>(
-                      builder: (context, store, _) {
-                        return Expanded(
-                          child: Text(
-                            '工作空间 · ${store.workspacePath}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Color(CommonConstants.textSecondaryColorValue),
-                                ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+              const _ExternalLinks(),
+              const _WindowControls(),
+            ],
           ),
-          const _ExternalLinks(),
-          const _WindowControls(),
-        ],
-      ),
+        );
+        if (!hasBg) return bar;
+        // 有背景图（内置或自定义）：给顶栏叠加毛玻璃，文字清晰且背景图能透出
+        return ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: bar,
+          ),
+        );
+      },
     );
   }
 
   Widget _buildLeftPanel() {
-    return Container(
-      width: CommonConstants.leftNavWidth,
-      color: Color(CommonConstants.sidebarColorValue),
-      child: Column(
-        children: [
-          const Expanded(child: WorkspaceTree()),
-          _buildLeftFooter(),
-        ],
-      ),
+    return Consumer<ThemeStore>(
+      builder: (context, themeStore, _) {
+        final hasBg = themeStore.hasAnyBackground;
+        final panel = Container(
+          width: CommonConstants.leftNavWidth,
+          color: hasBg
+              ? Color(CommonConstants.sidebarColorValue).withValues(alpha: 0.55)
+              : Color(CommonConstants.sidebarColorValue),
+          child: Column(
+            children: [
+              const Expanded(child: WorkspaceTree()),
+              _buildLeftFooter(),
+            ],
+          ),
+        );
+        if (!hasBg) return panel;
+        // 有背景图：左侧栏叠加毛玻璃
+        return ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: panel,
+          ),
+        );
+      },
     );
   }
 
@@ -212,9 +243,10 @@ class _HomePageState extends State<HomePage> {
     // 缓存工作空间/皮肤的"修改后"状态，点保存才真正写回 store
     String pendingWorkspacePath = workspaceStore.workspacePath;
     SkinMode pendingSkinMode = themeStore.skinMode;
-    String? pendingBgPath = themeStore.customBackgroundPath;
-    bool dirtyBg = false;
-    String? pendingBgSourcePath;
+    // 待使用的自定义背景图路径（仅用户刚选了图、尚未保存时非空）
+    // 如果 pendingSkinMode == customBg 但 pendingCustomBgFile 为空，
+    // 则使用 store 中已存在的用户图（若 store 也没有则提示用户先选一张）
+    String? pendingCustomBgFile = themeStore.customBackgroundPath;
 
     await showDialog<void>(
       context: context,
@@ -417,12 +449,10 @@ class _HomePageState extends State<HomePage> {
                                   },
                                 ),
                                 const SizedBox(height: 20),
-                                // 自定义背景区域（在自定义模式+上传后，或已经有自定义路径时才显示预览）
-                                if (pendingSkinMode == SkinMode.customBg ||
-                                    (pendingBgPath != null &&
-                                        pendingBgPath!.isNotEmpty)) ...[
+                                // ----- 内置背景预览（builtInBg 时显示）-----
+                                if (pendingSkinMode == SkinMode.builtInBg) ...[
                                   Text(
-                                    '自定义背景',
+                                    '内置背景',
                                     style: Theme.of(ctx)
                                         .textTheme
                                         .bodySmall
@@ -447,112 +477,191 @@ class _HomePageState extends State<HomePage> {
                                     ),
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(7),
-                                      child: () {
-                                        final source =
-                                            pendingBgSourcePath ?? pendingBgPath;
-                                        if (source != null &&
-                                            File(source).existsSync()) {
-                                          return Image.file(
-                                            File(source),
-                                            fit: BoxFit.cover,
+                                      child: Image.asset(
+                                        'images/bgPic.jpg',
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        errorBuilder: (_, _, _) =>
+                                          Container(
                                             width: double.infinity,
-                                          );
-                                        }
-                                        return Container(
-                                          width: double.infinity,
-                                          alignment: Alignment.center,
-                                          color: Theme.of(ctx)
-                                              .colorScheme
-                                              .surfaceContainerHighest
-                                              .withValues(alpha: 0.25),
-                                          child: Text(
-                                            '还未选择图片',
-                                            style: Theme.of(ctx)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  color: Color(CommonConstants
-                                                      .textSecondaryColorValue),
-                                                ),
+                                            alignment: Alignment.center,
+                                            color: Theme.of(ctx)
+                                                .colorScheme
+                                                .surfaceContainerHighest
+                                                .withValues(alpha: 0.25),
+                                            child: Text(
+                                              '内置背景图 images/bgPic.jpg',
+                                              style: Theme.of(ctx)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: Color(CommonConstants
+                                                        .textSecondaryColorValue),
+                                                  ),
+                                            ),
                                           ),
-                                        );
-                                      }(),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 10),
+                                  Text(
+                                    '使用项目内置的固定背景图（images/bgPic.jpg），无需上传。',
+                                    style:
+                                        Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                                              color: Color(
+                                                CommonConstants
+                                                    .textSecondaryColorValue,
+                                              ),
+                                            ),
+                                  ),
+                                ],
+                                // ----- 自定义背景（customBg：支持用户上传 + 预览）-----
+                                if (pendingSkinMode == SkinMode.customBg) ...[
+                                  Text(
+                                    '自定义背景',
+                                    style: Theme.of(ctx)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: Color(
+                                            CommonConstants
+                                                .textSecondaryColorValue,
+                                          ),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 8),
                                   Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.end,
                                     children: [
                                       Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () async {
-                                            final picked = await FilePicker
-                                                .platform
-                                                .pickFiles(
-                                              dialogTitle: '选择背景图',
-                                              type: FileType.image,
-                                              allowMultiple: false,
-                                            );
-                                            if (picked == null ||
-                                                picked.files.isEmpty) {
-                                              return;
-                                            }
-                                            final p = picked.files.single.path;
-                                            if (p == null) {
-                                              return;
-                                            }
-                                            pendingBgSourcePath = p;
-                                            pendingSkinMode =
-                                                SkinMode.customBg;
-                                            dirtyBg = true;
-                                            setDialogState(() {});
-                                          },
-                                          style: OutlinedButton.styleFrom(
-                                            side: BorderSide(
-                                              color: Color(CommonConstants
-                                                  .borderColorValue),
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
+                                        child: Container(
+                                          height: 150,
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: Color(
+                                                CommonConstants
+                                                    .borderColorValue,
+                                              ),
                                             ),
                                           ),
-                                          icon: const Icon(
-                                              Icons.image_outlined, size: 16),
-                                          label: const Text('选择图片'),
+                                          child: ClipRRect(
+                                            borderRadius:
+                                                BorderRadius.circular(7),
+                                            child: Builder(
+                                              builder: (context) {
+                                                final p =
+                                                    pendingCustomBgFile;
+                                                if (p != null &&
+                                                    p.isNotEmpty &&
+                                                    File(p).existsSync()) {
+                                                  return Image.file(
+                                                    File(p),
+                                                    fit: BoxFit.cover,
+                                                    width: double.infinity,
+                                                    errorBuilder:
+                                                        (_, __, ___) =>
+                                                            Container(
+                                                      alignment:
+                                                          Alignment.center,
+                                                      color: Theme.of(ctx)
+                                                          .colorScheme
+                                                          .error
+                                                          .withValues(alpha: 0.08),
+                                                      child: Text(
+                                                        '图片无法读取，请重新选择',
+                                                        style: Theme.of(ctx)
+                                                            .textTheme
+                                                            .bodySmall
+                                                            ?.copyWith(
+                                                              color: Color(CommonConstants
+                                                                  .textSecondaryColorValue),
+                                                            ),
+                                                      ),
+                                                    ),
+                                                  );
+                                                }
+                                                return Container(
+                                                  width: double.infinity,
+                                                  alignment: Alignment.center,
+                                                  color: Theme.of(ctx)
+                                                      .colorScheme
+                                                      .surfaceContainerHighest
+                                                      .withValues(alpha: 0.2),
+                                                  child: Text(
+                                                    '还未选择图片，点击右侧"选择图片"上传',
+                                                    style: Theme.of(ctx)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: Color(CommonConstants
+                                                              .textSecondaryColorValue),
+                                                        ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                      if (dirtyBg ||
-                                          (pendingBgPath != null &&
-                                              pendingBgPath!
-                                                  .isNotEmpty)) ...[
-                                        const SizedBox(width: 8),
-                                        OutlinedButton.icon(
-                                          onPressed: () {
-                                            pendingBgSourcePath = null;
-                                            pendingBgPath = null;
-                                            dirtyBg = false;
-                                            if (pendingSkinMode ==
-                                                SkinMode.customBg) {
-                                              pendingSkinMode = SkinMode.light;
-                                            }
-                                            setDialogState(() {});
-                                          },
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: const Color(
-                                                0xFFDC2626),
-                                            side: const BorderSide(
-                                                color: Color(0xFFFCA5A5)),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
+                                      const SizedBox(width: 10),
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          FilledButton.tonalIcon(
+                                            onPressed: () async {
+                                              final result = await FilePicker
+                                                  .platform
+                                                  .pickFiles(
+                                                dialogTitle: '选择背景图片',
+                                                type: FileType.image,
+                                                allowMultiple: false,
+                                              );
+                                              final picked =
+                                                  result?.files.single.path;
+                                              if (picked != null &&
+                                                  picked.isNotEmpty) {
+                                                pendingCustomBgFile = picked;
+                                                setDialogState(() {});
+                                              }
+                                            },
+                                            icon: const Icon(
+                                                Icons.image_search_outlined,
+                                                size: 15),
+                                            label: const Text('选择图片'),
                                           ),
-                                          icon: const Icon(Icons.delete_outline,
-                                              size: 16),
-                                          label: const Text('清除背景'),
-                                        ),
-                                      ],
+                                          if (pendingCustomBgFile != null) ...[
+                                            const SizedBox(height: 8),
+                                            OutlinedButton.icon(
+                                              onPressed: () {
+                                                pendingCustomBgFile = null;
+                                                setDialogState(() {});
+                                              },
+                                              icon: const Icon(
+                                                  Icons.remove_circle_outline,
+                                                  size: 15),
+                                              label: const Text('清除'),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    '点击"选择图片"上传本地图片作为应用背景（保存后生效，仅支持常见图片格式）。',
+                                    style:
+                                        Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                                              color: Color(
+                                                CommonConstants
+                                                    .textSecondaryColorValue,
+                                              ),
+                                            ),
                                   ),
                                 ],
                               ],
@@ -588,48 +697,48 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                   onPressed: () async {
-                    Navigator.pop(ctx);
                     // ---- 应用皮肤 ----
                     switch (pendingSkinMode) {
                       case SkinMode.light:
                         themeStore.switchToLight();
                         break;
-                      case SkinMode.dark:
-                        themeStore.switchToDark();
+                      case SkinMode.builtInBg:
+                        themeStore.switchToBuiltInBg();
                         break;
                       case SkinMode.customBg:
-                        if (dirtyBg && pendingBgSourcePath != null) {
-                          try {
-                            await themeStore
-                                .setCustomBackground(pendingBgSourcePath!);
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('背景图保存失败: $e'),
-                                  backgroundColor:
-                                      Theme.of(context).colorScheme.error,
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
-                            }
+                        // 自定义背景：必须有一张可用的图（已选或 store 已有）
+                        final bgFile = pendingCustomBgFile;
+                        if (bgFile == null ||
+                            bgFile.isEmpty ||
+                            !File(bgFile).existsSync()) {
+                          Navigator.pop(ctx);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text('请先选择一张图片作为自定义背景'),
+                                backgroundColor:
+                                    Theme.of(context).colorScheme.error,
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
                           }
-                        } else if (pendingBgPath != null &&
-                            pendingBgPath!.isNotEmpty) {
-                          // 仅皮肤模式恢复到 customBg（比如用户切到 custom 没换图）
-                          if (themeStore.skinMode != SkinMode.customBg) {
-                            themeStore.refresh();
-                          }
+                          return;
+                        }
+                        final ok =
+                            await themeStore.switchToCustomBackground(bgFile);
+                        if (!ok && mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('自定义背景保存失败，请检查图片是否可访问'),
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.error,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
                         }
                         break;
                     }
-                    // 用户手动清除了背景 → 回到亮色
-                    if (pendingBgPath == null &&
-                        pendingBgSourcePath == null &&
-                        pendingSkinMode == SkinMode.light &&
-                        themeStore.skinMode == SkinMode.customBg) {
-                      themeStore.clearCustomBackground();
-                    }
+                    Navigator.pop(ctx);
 
                     // ---- 应用工作空间 ----
                     if (pendingWorkspacePath !=
@@ -671,7 +780,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 三种皮肤模式的横向卡片选择
+  /// 三种皮肤模式的横向卡片选择：亮色 | 内置背景 | 自定义背景（用户上传）
   Widget _buildSkinOptionRow(
     BuildContext ctx, {
     required SkinMode selected,
@@ -757,12 +866,12 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(width: 10),
         card(
-          mode: SkinMode.dark,
-          title: '暗色模式',
-          desc: '护眼沉浸，适合夜晚',
-          bg: const Color(0xFF111827),
-          fg: const Color(0xFFE5E7EB),
-          icon: Icons.dark_mode_outlined,
+          mode: SkinMode.builtInBg,
+          title: '内置背景',
+          desc: '内置 bgPic.jpg 背景图',
+          bg: const Color(0xFFF5F3FF),
+          fg: const Color(0xFF6D28D9),
+          icon: Icons.photo_library_outlined,
         ),
         const SizedBox(width: 10),
         card(
@@ -778,22 +887,36 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildVerticalDivider() {
-    return Container(
-      width: 1,
-      color: Color(CommonConstants.borderColorValue),
+    return Consumer<ThemeStore>(
+      builder: (context, themeStore, _) {
+        final hasBg = themeStore.hasAnyBackground;
+        return Container(
+          width: 1,
+          color: hasBg
+              ? Color(CommonConstants.borderColorValue).withValues(alpha: 0.5)
+              : Color(CommonConstants.borderColorValue),
+        );
+      },
     );
   }
 
   Widget _buildRightPanel() {
-    return Column(
-      children: [
-        const DocumentTabs(),
-        Container(
-          height: 1,
-          color: Color(CommonConstants.borderColorValue),
-        ),
-        const Expanded(child: RequestResponsePanel()),
-      ],
+    return Consumer<ThemeStore>(
+      builder: (context, themeStore, _) {
+        final hasBg = themeStore.hasAnyBackground;
+        return Column(
+          children: [
+            const DocumentTabs(),
+            Container(
+              height: 1,
+              color: hasBg
+                  ? Color(CommonConstants.borderColorValue).withValues(alpha: 0.5)
+                  : Color(CommonConstants.borderColorValue),
+            ),
+            const Expanded(child: RequestResponsePanel()),
+          ],
+        );
+      },
     );
   }
 }
