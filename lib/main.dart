@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +13,7 @@ import 'package:json_layer/services/FileWorkspaceService.dart';
 import 'package:json_layer/services/WorkspaceService.dart';
 import 'package:json_layer/stores/EditorStore.dart';
 import 'package:json_layer/stores/TabStore.dart';
+import 'package:json_layer/stores/ThemeStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
 void main() async {
@@ -18,12 +21,16 @@ void main() async {
 
   await windowManager.ensureInitialized();
 
+  // 提前初始化 ThemeStore，MaterialApp 启动时就能拿到 themeMode
+  final themeStore = ThemeStore();
+  await themeStore.loadFromPrefs();
+
   WindowOptions windowOptions = const WindowOptions(
     size: Size(1280, 800),
     minimumSize: Size(900, 600),
     center: true,
     title: CommonConstants.appName,
-    backgroundColor: Color(0xFFF5F6F8),
+    backgroundColor: Colors.transparent,
     titleBarStyle: TitleBarStyle.hidden,
   );
 
@@ -32,11 +39,13 @@ void main() async {
     await windowManager.focus();
   });
 
-  runApp(const JsonLayerApp());
+  runApp(JsonLayerApp(themeStore: themeStore));
 }
 
 class JsonLayerApp extends StatelessWidget {
-  const JsonLayerApp({super.key});
+  final ThemeStore themeStore;
+
+  const JsonLayerApp({super.key, required this.themeStore});
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +53,11 @@ class JsonLayerApp extends StatelessWidget {
       future: _hasConfiguredWorkspace(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const _AppShell(home: _LoadingScreen());
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: themeStore.lightTheme(),
+            home: const _LoadingScreen(),
+          );
         }
 
         final hasWorkspace = snapshot.data!;
@@ -59,12 +72,38 @@ class JsonLayerApp extends StatelessWidget {
           });
         }
 
-        return _AppShell(
-          home: hasWorkspace ? const HomePage() : const WelcomePage(),
-          workspaceStore: workspaceStore,
-          tabStore: tabStore,
-          editorStore: editorStore,
-          service: service,
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ThemeStore>.value(value: themeStore),
+            ChangeNotifierProvider<WorkspaceStore>.value(value: workspaceStore),
+            ChangeNotifierProvider<TabStore>.value(value: tabStore),
+            ChangeNotifierProvider<EditorStore>.value(value: editorStore),
+            Provider<WorkspaceService>.value(value: service),
+          ],
+          child: Consumer<ThemeStore>(
+            builder: (context, store, child) {
+              return _SkinBackgroundWrapper(
+                store: store,
+                child: MaterialApp(
+                  title: appTitle,
+                  debugShowCheckedModeBanner: false,
+                  theme: store.lightTheme(),
+                  darkTheme: store.darkTheme(),
+                  themeMode: store.themeMode,
+                  home: hasWorkspace ? const HomePage() : const WelcomePage(),
+                  onGenerateRoute: (settings) {
+                    if (settings.name == '/home') {
+                      return MaterialPageRoute(builder: (_) => const HomePage());
+                    }
+                    if (settings.name == '/welcome') {
+                      return MaterialPageRoute(builder: (_) => const WelcomePage());
+                    }
+                    return null;
+                  },
+                ),
+              );
+            },
+          ),
         );
       },
     );
@@ -77,52 +116,45 @@ class JsonLayerApp extends StatelessWidget {
   }
 }
 
-class _AppShell extends StatelessWidget {
-  final Widget home;
-  final WorkspaceStore? workspaceStore;
-  final TabStore? tabStore;
-  final EditorStore? editorStore;
-  final WorkspaceService? service;
+/// 在 MaterialApp 外层（它自己的 Scaffold 背景层之上 + 窗口之下）绘制
+/// 自定义背景图。只有 SkinMode.customBg 时显示，其他皮肤直接透明。
+class _SkinBackgroundWrapper extends StatelessWidget {
+  final ThemeStore store;
+  final Widget child;
 
-  const _AppShell({
-    required this.home,
-    this.workspaceStore,
-    this.tabStore,
-    this.editorStore,
-    this.service,
+  const _SkinBackgroundWrapper({
+    required this.store,
+    required this.child,
   });
 
   @override
   Widget build(BuildContext context) {
-    final child = MaterialApp(
-      title: appTitle,
-      debugShowCheckedModeBanner: false,
-      theme: getRootTheme(Brightness.light),
-      darkTheme: getRootTheme(Brightness.dark),
-      home: home,
-      onGenerateRoute: (settings) {
-        if (settings.name == '/home') {
-          return MaterialPageRoute(builder: (_) => const HomePage());
-        }
-        if (settings.name == '/welcome') {
-          return MaterialPageRoute(builder: (_) => const WelcomePage());
-        }
-        return null;
-      },
-    );
-
-    if (workspaceStore == null) {
-      return child;
+    if (!store.hasCustomBackground) {
+      // 无自定义图时直接用主题自带的背景色
+      final bgColor = store.skinMode == SkinMode.dark
+          ? store.darkTheme().scaffoldBackgroundColor
+          : store.lightTheme().scaffoldBackgroundColor;
+      return Container(color: bgColor, child: child);
     }
-
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider<WorkspaceStore>.value(value: workspaceStore!),
-        ChangeNotifierProvider<TabStore>.value(value: tabStore!),
-        ChangeNotifierProvider<EditorStore>.value(value: editorStore!),
-        Provider<WorkspaceService>.value(value: service!),
+    final file = File(store.customBackgroundPath!);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 底：背景图，整窗铺满
+        Image.file(
+          file,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (context, err, stack) =>
+            Container(color: store.lightTheme().scaffoldBackgroundColor),
+        ),
+        // 一层柔和的暗化，保证面板对比度（不会影响视线，因为内容区面板本身不透明）
+        Container(
+          color: const Color(0xFFFFFFFF).withValues(alpha: 0.25),
+        ),
+        // 顶：整棵 app
+        child,
       ],
-      child: child,
     );
   }
 }

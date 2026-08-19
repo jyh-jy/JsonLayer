@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:json_layer/main.dart';
+import 'package:json_layer/stores/ThemeStore.dart';
 
 void main() {
   testWidgets('JsonLayerApp 根组件可正常构建', (WidgetTester tester) async {
-    await tester.pumpWidget(const JsonLayerApp());
+    final themeStore = ThemeStore();
+    await tester.pumpWidget(JsonLayerApp(themeStore: themeStore));
     // 等待 FutureBuilder 完成一帧
     await tester.pump();
 

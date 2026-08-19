@@ -41,6 +41,9 @@ dependencies:
   # 本地存储（工作空间路径持久化）
   shared_preferences: ^2.3.5
 
+  # 应用路径（自定义背景图持久化目录）
+  path_provider: ^2.1.4
+
   # 文件/目录选择
   file_picker: ^8.1.2
 
@@ -84,6 +87,7 @@ flutter:
     - images/JsonLayer.png
     - images/deepseek.webp
     - images/github.webp
+    - images/bgPic.jpg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
