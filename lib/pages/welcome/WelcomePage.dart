@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
@@ -42,8 +43,10 @@ class _WelcomePageState extends State<WelcomePage> {
   Future<void> _configure() async {
     final basePath = _pathController.text.trim();
     if (basePath.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请选择存储位置')),
+      SafeSnackBar.show(
+        context,
+        message: '请选择存储位置',
+        idempotencyKey: 'welcome_no_path',
       );
       return;
     }
@@ -58,8 +61,11 @@ class _WelcomePageState extends State<WelcomePage> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('创建工作空间失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '创建工作空间失败: $e',
+          idempotencyKey: 'create_workspace_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     } finally {

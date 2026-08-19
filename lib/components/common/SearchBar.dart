@@ -32,6 +32,13 @@ class SearchQueryBar extends StatefulWidget {
   /// 外部可传入的焦点节点，用于父组件在滚动后把焦点还给输入框
   final FocusNode? focusNode;
 
+  /// 外部可传入的撤销/重做控制器：
+  /// - 父组件可以读 canUndo/canRedo 来判断是否允许快捷键
+  /// - 父组件可以主动调用 undo()/redo() 让搜索框响应 Ctrl+Z（即便焦点在 JSON 编辑器上）
+  ///
+  /// 如果不传，组件内部会自建一个 UndoHistoryController。
+  final UndoHistoryController? undoController;
+
   const SearchQueryBar({
     super.key,
     required this.onQueryChanged,
@@ -43,6 +50,7 @@ class SearchQueryBar extends StatefulWidget {
     this.onNavigate,
     this.onEscape,
     this.focusNode,
+    this.undoController,
   });
 
   @override
@@ -53,6 +61,8 @@ class _SearchBarState extends State<SearchQueryBar> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
   late final bool _ownsFocusNode;
+  late final UndoHistoryController _undoController;
+  late final bool _ownsUndoController;
   bool _focused = false;
 
   @override
@@ -61,6 +71,8 @@ class _SearchBarState extends State<SearchQueryBar> {
     _controller = TextEditingController(text: widget.initialQuery ?? '');
     _ownsFocusNode = widget.focusNode == null;
     _focusNode = widget.focusNode ?? FocusNode();
+    _ownsUndoController = widget.undoController == null;
+    _undoController = widget.undoController ?? UndoHistoryController();
     _focusNode.onKeyEvent = _handleKeyEvent;
     _focusNode.addListener(_onFocusChanged);
   }
@@ -103,6 +115,9 @@ class _SearchBarState extends State<SearchQueryBar> {
     _controller.dispose();
     if (_ownsFocusNode) {
       _focusNode.dispose();
+    }
+    if (_ownsUndoController) {
+      _undoController.dispose();
     }
     super.dispose();
   }
@@ -169,6 +184,7 @@ class _SearchBarState extends State<SearchQueryBar> {
     return TextField(
       controller: _controller,
       focusNode: _focusNode,
+      undoController: _undoController,
       autofocus: true,
       onChanged: (v) {
         widget.onQueryChanged(v);

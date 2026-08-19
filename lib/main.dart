@@ -119,8 +119,8 @@ class JsonLayerApp extends StatelessWidget {
 /// 在 MaterialApp 外层（它自己的 Scaffold 背景层之上 + 窗口之下）绘制
 /// 背景图。
 /// - SkinMode.light → 纯色 0xFFF5F6F8；
-/// - SkinMode.builtInBg → 内置 images/bgPic.jpg 整窗原样展示；
-/// - SkinMode.customBg → 用户上传的图整窗展示；文件不存在/读失败时回退到内置 bgPic.jpg。
+/// - SkinMode.builtInBg → 内置 $kFixedBackgroundAsset 整窗原样展示；
+/// - SkinMode.customBg → 用户上传的图整窗展示；文件不存在/读失败时回退到内置 $kFixedBackgroundAsset。
 class _SkinBackgroundWrapper extends StatelessWidget {
   final ThemeStore store;
   final Widget child;
@@ -130,7 +130,7 @@ class _SkinBackgroundWrapper extends StatelessWidget {
     required this.child,
   });
 
-  /// Fallback 背景：内置 bgPic.jpg；若资源加载失败再用纯色
+  /// Fallback 背景：内置 $kFixedBackgroundAsset；若资源加载失败再用纯色
   Widget _buildBuiltInFallback({required Widget child}) {
     return Stack(
       fit: StackFit.expand,

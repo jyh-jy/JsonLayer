@@ -8,7 +8,7 @@ import 'package:highlight/languages/json.dart' as json_highlight;
 
 import 'package:json_layer/components/common/SearchBar.dart'
     show SearchQueryBar;
-import 'package:json_layer/components/common/HorizontalScrollBar.dart';
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
@@ -39,10 +39,12 @@ class JsonEditor extends StatefulWidget {
 class _JsonEditorState extends State<JsonEditor> {
   late _JsonCodeController _controller;
   final ScrollController _lineNumberScrollController = ScrollController();
-  final ScrollController _horizontalScrollController = ScrollController();
   final ScrollController _verticalScrollController = ScrollController();
   final FocusNode _editorFocusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
+  /// 搜索栏的撤销/重做控制器：由 JsonEditor 持有，以便当焦点在 JSON
+  /// 主编辑器上时，Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 也能路由到搜索框。
+  final UndoHistoryController _searchUndoController = UndoHistoryController();
   int _lineCount = 1;
   String _longestLine = '';
 
@@ -88,7 +90,7 @@ class _JsonEditorState extends State<JsonEditor> {
   @override
   void dispose() {
     _controller.removeListener(_onTextChanged);
-    _horizontalScrollController.dispose();
+    _searchUndoController.dispose();
     _verticalScrollController.dispose();
     _lineNumberScrollController.dispose();
     _editorFocusNode.dispose();
@@ -220,6 +222,17 @@ class _JsonEditorState extends State<JsonEditor> {
   }
 
   void _openSearch() {
+    // Ctrl+F 打开搜索时：如果编辑器里有选中的文本（非零长度），直接回填到搜索词。
+    // 省去手动复制粘贴。
+    final sel = _controller.value.selection;
+    if (sel.isValid && !sel.isCollapsed) {
+      final picked = sel.textInside(_controller.text);
+      if (picked.isNotEmpty) {
+        _searchQuery = picked;
+        // 已填词：立即算一次匹配，避免打开后显示"0 结果"再等用户输入。
+        _recollectMatches();
+      }
+    }
     setState(() => _showSearchBar = true);
     _controller.searchBarVisible = true;
     // 唤起后让输入框自动获得焦点，用户无需再点击输入框。
@@ -258,6 +271,13 @@ class _JsonEditorState extends State<JsonEditor> {
   }
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y：当搜索栏可见时，优先让搜索框执行撤销/重做。
+    // （即使焦点已经从搜索框移回 JSON 主编辑器，也能用同一个快捷键撤销刚才
+    //  在搜索栏输入的内容，无需先手动把焦点移回搜索框。）
+    final searchUndoResult = _tryHandleSearchUndoRedo(event);
+    if (searchUndoResult == KeyEventResult.handled) {
+      return KeyEventResult.handled;
+    }
     if (event is KeyDownEvent) {
       final ctrl = HardwareKeyboard.instance.isControlPressed;
       final shift = HardwareKeyboard.instance.isShiftPressed;
@@ -280,14 +300,11 @@ class _JsonEditorState extends State<JsonEditor> {
         }
       }
     }
-    // 原有快捷键：Ctrl+L 格式化、Ctrl+S 保存
+    // 原有快捷键：Ctrl+L 格式化（Ctrl+S 全局保存交给上层 HomePage 的 CallbackShortcuts，
+    // 避免这里和上层重复写盘）
     if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
       if (event.logicalKey == LogicalKeyboardKey.keyL) {
         _formatJson();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyS) {
-        widget.onSave?.call();
         return KeyEventResult.handled;
       }
     }
@@ -295,7 +312,46 @@ class _JsonEditorState extends State<JsonEditor> {
   }
 
   KeyEventResult _onEditorKeyEvent(FocusNode node, KeyEvent event) {
+    // 主编辑器焦点内：搜索框撤销优先级高于主编辑器撤销
+    final searchUndoResult = _tryHandleSearchUndoRedo(event);
+    if (searchUndoResult == KeyEventResult.handled) {
+      return KeyEventResult.handled;
+    }
     return _controller.onKey(event);
+  }
+
+  /// 如果搜索栏打开且目标 undo/redo 键按下，调用搜索框 UndoHistoryController
+  /// 执行撤销/重做，并返回 handled 让外层的主编辑器跳过默认的 Undo/Redo。
+  /// 其它情况返回 ignored，让事件继续传播到主编辑器的默认处理。
+  KeyEventResult _tryHandleSearchUndoRedo(KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!_showSearchBar) return KeyEventResult.ignored;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    if (!ctrl) return KeyEventResult.ignored;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final undoVal = _searchUndoController.value;
+
+    // Ctrl+Z = Undo
+    if (event.logicalKey == LogicalKeyboardKey.keyZ && !shift) {
+      if (undoVal.canUndo) {
+        _searchUndoController.undo();
+        return KeyEventResult.handled;
+      }
+      // 搜索框撤销栈已经没有东西了：让主编辑器自己处理 Ctrl+Z
+      return KeyEventResult.ignored;
+    }
+    // Ctrl+Shift+Z / Ctrl+Y = Redo
+    final isRedo =
+        (event.logicalKey == LogicalKeyboardKey.keyZ && shift) ||
+        event.logicalKey == LogicalKeyboardKey.keyY;
+    if (isRedo) {
+      if (undoVal.canRedo) {
+        _searchUndoController.redo();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.ignored;
   }
 
   Widget _buildSearchBarWrap(ThemeData theme) {
@@ -308,6 +364,8 @@ class _JsonEditorState extends State<JsonEditor> {
         ),
       ),
       child: SearchQueryBar(
+        initialQuery: _searchQuery,
+        undoController: _searchUndoController,
         currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
         totalMatches: _matches.isEmpty && _searchQuery.trim().isEmpty
             ? null
@@ -433,7 +491,6 @@ class _JsonEditorState extends State<JsonEditor> {
                               controller: _verticalScrollController,
                               child: SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
-                                controller: _horizontalScrollController,
                                 child: SizedBox(
                                   width: editorWidth,
                                   child: Listener(
@@ -468,8 +525,6 @@ class _JsonEditorState extends State<JsonEditor> {
                         ),
                       ),
                     ),
-                    // 水平滚动条固定在底部，始终可见
-                    _buildHorizontalScrollbar(),
                   ],
                 );
               },
@@ -478,10 +533,6 @@ class _JsonEditorState extends State<JsonEditor> {
         ],
       ),
     );
-  }
-
-  Widget _buildHorizontalScrollbar() {
-    return HorizontalScrollBar(controller: _horizontalScrollController);
   }
 
   /// 编辑器文本样式（提取为 getter，供宽度测量复用同一套字体参数）。
@@ -569,9 +620,12 @@ class _JsonEditorState extends State<JsonEditor> {
       _controller.text = formatted;
       widget.onChanged(formatted);
     } catch (e) {
-      ScaffoldMessenger.of(
+      SafeSnackBar.show(
         context,
-      ).showSnackBar(SnackBar(content: Text('格式化失败: $e')));
+        message: '格式化失败: $e',
+        idempotencyKey: 'format_failed',
+        backgroundColor: Theme.of(context).colorScheme.error,
+      );
     }
   }
 
@@ -584,9 +638,12 @@ class _JsonEditorState extends State<JsonEditor> {
       _controller.text = compressed;
       widget.onChanged(compressed);
     } catch (e) {
-      ScaffoldMessenger.of(
+      SafeSnackBar.show(
         context,
-      ).showSnackBar(SnackBar(content: Text('压缩失败: $e')));
+        message: '压缩失败: $e',
+        idempotencyKey: 'compress_failed',
+        backgroundColor: Theme.of(context).colorScheme.error,
+      );
     }
   }
 

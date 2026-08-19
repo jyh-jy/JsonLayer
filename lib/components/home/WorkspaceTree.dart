@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:provider/provider.dart';
 
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/model/DocumentItem.dart';
 import 'package:json_layer/stores/TabStore.dart';
@@ -318,15 +319,20 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         successCount++;
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('导入 $fileName 失败: $e')),
+          SafeSnackBar.show(
+            context,
+            message: '导入 $fileName 失败: $e',
+            idempotencyKey: 'import_failed',
+            backgroundColor: Theme.of(context).colorScheme.error,
           );
         }
       }
     }
     if (mounted && successCount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('成功导入 $successCount 个文件')),
+      SafeSnackBar.show(
+        context,
+        message: '成功导入 $successCount 个文件',
+        idempotencyKey: 'import_success',
       );
     }
   }
@@ -585,8 +591,11 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     // 检查目标是否已存在同名文件
     final exists = await store.exists(newPath);
     if (exists && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('目标位置已存在 $name')),
+      SafeSnackBar.show(
+        context,
+        message: '目标位置已存在 $name',
+        idempotencyKey: 'move_exists_$name',
+        backgroundColor: Theme.of(context).colorScheme.error,
       );
       return;
     }
@@ -594,14 +603,19 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     try {
       await store.moveItem(data.path, destFolderPath);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已移动到 ${destFolderPath.split('\\').last}')),
+        SafeSnackBar.show(
+          context,
+          message: '已移动到 ${destFolderPath.split('\\').last}',
+          idempotencyKey: 'move_success',
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('移动失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '移动失败: $e',
+          idempotencyKey: 'move_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     }
@@ -652,8 +666,11 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
       context.read<TabStore>().openDocument(item, initialContent: '');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('新建文档失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '新建文档失败: $e',
+          idempotencyKey: 'create_doc_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     }
@@ -866,7 +883,32 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   }
 
   void _showRenameDialog(DocumentItem node, WorkspaceStore store) {
-    final controller = TextEditingController(text: node.name);
+    // 文件重命名：让用户只改"主名"，扩展名固定不展示在输入框里。
+    // - 输入框初始值 = 去掉扩展名后的文件名（例: "测试.json" -> "测试"）
+    // - 输入框右侧用 suffixText 展示 ".json"/".log"，非编辑、灰字
+    // - 用户即便手滑在主名后面又加了 ".json"，确认时也会自动去掉再拼回原扩展名
+    // - 文件夹重命名：原来的逻辑，不拆扩展名
+    String initialName = node.name;
+    String? extensionSuffix; // null = 不使用扩展名机制（文件夹/未知文件）
+    String? forcedExtension;  // 确认时强制拼回的扩展名
+
+    if (node.isDocument && node.documentType != null) {
+      final ext = node.documentType!.extension; // ".json" / ".log"
+      final nameLower = node.name.toLowerCase();
+      final extLower = ext.toLowerCase();
+      if (nameLower.endsWith(extLower) && node.name.length > ext.length) {
+        initialName = node.name.substring(0, node.name.length - ext.length);
+        extensionSuffix = ext;
+        forcedExtension = ext;
+      }
+    }
+
+    final controller = TextEditingController(text: initialName);
+    // 打开时自动全选主名，用户直接输入即可覆盖，不用再手动拖动选择
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -881,11 +923,24 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           controller: controller,
           autofocus: true,
           textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _confirmRename(controller, node, store, ctx),
+          onSubmitted: (_) => _confirmRename(
+            controller,
+            node,
+            store,
+            ctx,
+            forcedExtension: forcedExtension,
+          ),
           decoration: InputDecoration(
             isDense: true,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            // 当是文件时，suffix 非编辑灰色显示原扩展名，提示用户无需输入
+            suffixText: extensionSuffix,
+            suffixStyle: TextStyle(
+              color: Color(CommonConstants.textSecondaryColorValue),
+              fontSize: 13,
+            ),
+            // 有 suffix 时让用户知道这是"原样保留"的，用次级文字颜色
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide:
@@ -926,7 +981,13 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onPressed: () => _confirmRename(controller, node, store, ctx),
+            onPressed: () => _confirmRename(
+              controller,
+              node,
+              store,
+              ctx,
+              forcedExtension: forcedExtension,
+            ),
             child: const Text('确定'),
           ),
         ],
@@ -938,23 +999,67 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     TextEditingController controller,
     DocumentItem node,
     WorkspaceStore store,
-    BuildContext ctx,
-  ) async {
-    final name = controller.text.trim();
-    if (name.isNotEmpty && name != node.name) {
+    BuildContext ctx, {
+    required String? forcedExtension,
+  }) async {
+    var stem = controller.text.trim();
+    if (stem.isEmpty) {
+      if (ctx.mounted) {
+        SafeSnackBar.show(
+          ctx,
+          message: '文件名不能为空',
+          idempotencyKey: 'rename_empty_name',
+        );
+      }
+      return;
+    }
+
+    String newName;
+    if (forcedExtension != null) {
+      // 文件重命名：强制使用原来的扩展名。
+      // 容错：如果用户"好心"在主名后面又写了 .json / .log，先剥离再拼，
+      // 避免出现 "测试.json.json" 这样的结果。
+      final lower = stem.toLowerCase();
+      for (final type in DocumentType.values) {
+        final ext = type.extension.toLowerCase();
+        if (lower.endsWith(ext) && stem.length > ext.length) {
+          stem = stem.substring(0, stem.length - ext.length);
+          break;
+        }
+      }
+      if (stem.isEmpty) {
+        if (ctx.mounted) {
+          SafeSnackBar.show(
+            ctx,
+            message: '文件名不能为空',
+            idempotencyKey: 'rename_empty_name',
+          );
+        }
+        return;
+      }
+      newName = '$stem$forcedExtension';
+    } else {
+      newName = stem;
+    }
+
+    if (newName != node.name) {
       final oldPath = node.path;
-      final parentDir = oldPath.substring(0, oldPath.lastIndexOf('\\'));
-      final newPath = '$parentDir\\$name';
+      final sep = oldPath.contains('\\') ? '\\' : '/';
+      final parentDir = oldPath.substring(0, oldPath.lastIndexOf(sep));
+      final newPath = '$parentDir$sep$newName';
 
       // 先获取 tabStore，避免异步间隙后使用 BuildContext
       final tabStore = context.read<TabStore>();
 
-      await store.renameItem(oldPath, name);
+      await store.renameItem(oldPath, newName);
 
       // 重命名成功后更新标签页路径，确保标签不会丢失
-      tabStore.updateTabPath(oldPath, newPath, name);
+      tabStore.updateTabPath(oldPath, newPath, newName);
 
-      if (mounted) Navigator.pop(ctx);
+      if (mounted && ctx.mounted) Navigator.pop(ctx);
+    } else {
+      // 名字没改就直接关对话框，避免空操作
+      if (ctx.mounted) Navigator.pop(ctx);
     }
   }
 

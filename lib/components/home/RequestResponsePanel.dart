@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/home/JsonEditor.dart';
 import 'package:json_layer/components/home/ObjectTreeEditor.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
@@ -150,10 +151,10 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
     if (tab == null) return;
 
     if (!tab.isBound) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前文档未绑定磁盘文件，请先在左侧新建或打开一个 JSON 文档'),
-        ),
+      SafeSnackBar.show(
+        context,
+        message: '当前文档未绑定磁盘文件，请先在左侧新建或打开一个 JSON 文档',
+        idempotencyKey: 'save_not_bound',
       );
       return;
     }
@@ -165,8 +166,11 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
       tabStore.updateTab(tab.id, isDirty: false);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '保存失败: $e',
+          idempotencyKey: 'save_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     }

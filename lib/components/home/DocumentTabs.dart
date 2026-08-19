@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/model/DocumentItem.dart';
 import 'package:json_layer/stores/TabStore.dart';
@@ -228,8 +229,10 @@ class _DocumentTabsState extends State<DocumentTabs> {
         if (tab.path.isNotEmpty) {
           context.read<WorkspaceStore>().requestLocate(tab.path);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('该标签未绑定文件，无法定位')),
+          SafeSnackBar.show(
+            context,
+            message: '该标签未绑定文件，无法定位',
+            idempotencyKey: 'locate_not_bound',
           );
         }
       } else if (value == 'close_all') {
@@ -324,8 +327,10 @@ class _DocumentTabsState extends State<DocumentTabs> {
     final workspaceStore = context.read<WorkspaceStore>();
     final root = workspaceStore.root;
     if (root == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('工作空间未就绪')),
+      SafeSnackBar.show(
+        context,
+        message: '工作空间未就绪',
+        idempotencyKey: 'workspace_not_ready',
       );
       return;
     }
@@ -347,8 +352,11 @@ class _DocumentTabsState extends State<DocumentTabs> {
       context.read<TabStore>().openDocument(item, initialContent: '');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('新建文档失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '新建文档失败: $e',
+          idempotencyKey: 'create_doc_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     }

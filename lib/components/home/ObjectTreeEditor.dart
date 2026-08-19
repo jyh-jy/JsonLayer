@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import 'package:json_layer/components/common/SearchBar.dart'
     show SearchQueryBar;
-import 'package:json_layer/components/common/HorizontalScrollBar.dart';
 import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
@@ -36,6 +35,8 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
 
   final FocusNode _focusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
+  /// 搜索框的撤销/重做控制器（即便焦点不在搜索框也能 Ctrl+Z 撤回搜索词）。
+  final UndoHistoryController _searchUndoController = UndoHistoryController();
   final Set<String> _collapsedPaths = {};
 
   /// 内容宽度（横向滚动内容总宽），在内容变化时一次性测量，避免每帧重算。
@@ -57,8 +58,13 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       {}; // "path:kind" -> index in _matches
   int _currentMatchIndex = -1;
   final ScrollController _treeScrollController = ScrollController();
-  final ScrollController _horizontalScrollController = ScrollController();
   final Map<int, GlobalKey> _matchKeys = {};
+
+  /// 对象模式中用户最近一次在 SelectionArea 里选中的纯文本。
+  /// 用 SelectionArea.onSelectionChanged 回调实时更新，
+  /// 避免使用高版本 Flutter 才有的 SelectionContainer.getSelectedContent()
+  /// （本项目 SDK 还不支持该方法，编译会报 undefined_method）。
+  String _lastSelectedText = '';
 
   @override
   void initState() {
@@ -84,7 +90,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   @override
   void dispose() {
     _treeScrollController.dispose();
-    _horizontalScrollController.dispose();
+    _searchUndoController.dispose();
     _focusNode.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -219,6 +225,10 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
               // Text/Text.rich 都支持鼠标拖拽选择和复制，性能远好于每个
               // 节点都用 SelectableText（后者会为每个节点建立独立的选择状态）。
               child: SelectionArea(
+                onSelectionChanged: (content) {
+                  // 实时记录最近在对象模式下选中的文本（用于 Ctrl+F 自动回填）
+                  _lastSelectedText = content?.plainText ?? '';
+                },
                 child: _buildTree(theme),
               ),
             ),
@@ -229,11 +239,17 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   }
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y：搜索栏打开时优先让搜索框撤销/重做，
+    // 即便焦点已经移到了树上也能直接撤回刚才输入的搜索词。
+    final searchUndoResult = _tryHandleSearchUndoRedo(event);
+    if (searchUndoResult == KeyEventResult.handled) {
+      return KeyEventResult.handled;
+    }
     if (event is KeyDownEvent) {
       final ctrl = HardwareKeyboard.instance.isControlPressed;
       final shift = HardwareKeyboard.instance.isShiftPressed;
       if (ctrl && event.logicalKey == LogicalKeyboardKey.keyF) {
-        _openSearch();
+        _openSearch(context);
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape && _showSearchBar) {
@@ -254,7 +270,48 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     return KeyEventResult.ignored;
   }
 
-  void _openSearch() {
+  KeyEventResult _tryHandleSearchUndoRedo(KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!_showSearchBar) return KeyEventResult.ignored;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    if (!ctrl) return KeyEventResult.ignored;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final undoVal = _searchUndoController.value;
+
+    // Ctrl+Z = Undo
+    if (event.logicalKey == LogicalKeyboardKey.keyZ && !shift) {
+      if (undoVal.canUndo) {
+        _searchUndoController.undo();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    // Ctrl+Shift+Z / Ctrl+Y = Redo
+    final isRedo =
+        (event.logicalKey == LogicalKeyboardKey.keyZ && shift) ||
+        event.logicalKey == LogicalKeyboardKey.keyY;
+    if (isRedo) {
+      if (undoVal.canRedo) {
+        _searchUndoController.redo();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  void _openSearch(BuildContext context) {
+    // Ctrl+F 打开搜索时：如果对象模式的 SelectionArea 里最近有选中文本，
+    // 直接回填到搜索词，省去手动复制粘贴。
+    //
+    // 选中词通过 SelectionArea.onSelectionChanged 缓存在
+    // _lastSelectedText 里，不依赖高版本 Flutter 才有
+    // SelectionContainer.getSelectedContent() API。
+    final picked = _lastSelectedText;
+    if (picked.isNotEmpty) {
+      _searchQuery = picked;
+      _recollectMatches();
+    }
     setState(() => _showSearchBar = true);
     // 唤起后让输入框自动获得焦点，用户无需再点击输入框。
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -330,7 +387,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             theme,
             icon: Icons.search,
             tooltip: '搜索 (Ctrl+F)',
-            onTap: () => _showSearchBar ? _closeSearch() : _openSearch(),
+            onTap: () => _showSearchBar ? _closeSearch() : _openSearch(context),
           ),
           if (!widget.readOnly) ...[
             const SizedBox(width: 4),
@@ -356,6 +413,8 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
         ),
       ),
       child: SearchQueryBar(
+        initialQuery: _searchQuery,
+        undoController: _searchUndoController,
         currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
         totalMatches: _matches.isEmpty && _searchQuery.trim().isEmpty
             ? null
@@ -539,7 +598,6 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
                   : _contentWidth;
               return SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                controller: _horizontalScrollController,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     minWidth: constraints.maxWidth,
@@ -563,7 +621,6 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             },
           ),
         ),
-        HorizontalScrollBar(controller: _horizontalScrollController),
       ],
     );
   }

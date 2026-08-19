@@ -10,6 +10,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:json_layer/components/home/WorkspaceTree.dart';
 import 'package:json_layer/components/home/DocumentTabs.dart';
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/home/RequestResponsePanel.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/stores/TabStore.dart';
@@ -35,27 +36,21 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  KeyEventResult _onGlobalKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
-      if (event.logicalKey == LogicalKeyboardKey.keyS) {
-        _saveActiveTab();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
-  }
-
   /// 全局 Ctrl+S 保存：将当前激活标签的数据写回磁盘。
+  ///
+  /// 通过 [CallbackShortcuts] 在整棵 HomePage 子树上注册，
+  /// 无论焦点在左侧树、标签栏、编辑区、顶栏还是空白区域，都能直接保存，
+  /// 不再需要先点击中间的内容区。
   Future<void> _saveActiveTab() async {
     final tabStore = context.read<TabStore>();
     final tab = tabStore.activeTab;
     if (tab == null) return;
 
     if (!tab.isBound) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('当前文档未绑定磁盘文件，请先在左侧新建或打开一个 JSON 文档'),
-        ),
+      SafeSnackBar.show(
+        context,
+        message: '当前文档未绑定磁盘文件，请先在左侧新建或打开一个 JSON 文档',
+        idempotencyKey: 'save_not_bound',
       );
       return;
     }
@@ -67,8 +62,11 @@ class _HomePageState extends State<HomePage> {
       tabStore.updateTab(tab.id, isDirty: false);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('保存失败: $e')),
+        SafeSnackBar.show(
+          context,
+          message: '保存失败: $e',
+          idempotencyKey: 'save_failed',
+          backgroundColor: Theme.of(context).colorScheme.error,
         );
       }
     }
@@ -76,10 +74,15 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // 全局 Ctrl+S：用 CallbackShortcuts（基于 Flutter 的 Shortcuts/Actions 机制）
+    // 比 Focus.onKeyEvent 冒泡更可靠 — Shortcuts 的匹配是对**整个焦点所在
+    // 的 widget 子树**生效，焦点在哪儿都能命中。
+    const saveShortcut =
+        SingleActivator(LogicalKeyboardKey.keyS, control: true);
     return Scaffold(
       backgroundColor: Colors.transparent, // 由外部 _SkinBackgroundWrapper 负责背景（亮色纯色/自定义图片）
-      body: Focus(
-        onKeyEvent: _onGlobalKeyEvent,
+      body: CallbackShortcuts(
+        bindings: {saveShortcut: _saveActiveTab},
         child: Column(
           children: [
             _buildAppBar(),
@@ -478,7 +481,7 @@ class _HomePageState extends State<HomePage> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(7),
                                       child: Image.asset(
-                                        'images/bgPic.jpg',
+                                        kFixedBackgroundAsset,
                                         fit: BoxFit.cover,
                                         width: double.infinity,
                                         errorBuilder: (_, _, _) =>
@@ -490,7 +493,7 @@ class _HomePageState extends State<HomePage> {
                                                 .surfaceContainerHighest
                                                 .withValues(alpha: 0.25),
                                             child: Text(
-                                              '内置背景图 images/bgPic.jpg',
+                                              '内置背景图 $kFixedBackgroundAsset',
                                               style: Theme.of(ctx)
                                                   .textTheme
                                                   .bodySmall
@@ -505,7 +508,7 @@ class _HomePageState extends State<HomePage> {
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
-                                    '使用项目内置的固定背景图（images/bgPic.jpg），无需上传。',
+                                    '使用项目内置的固定背景图（$kFixedBackgroundAsset），无需上传。',
                                     style:
                                         Theme.of(ctx).textTheme.bodySmall?.copyWith(
                                               color: Color(
@@ -713,13 +716,13 @@ class _HomePageState extends State<HomePage> {
                             !File(bgFile).existsSync()) {
                           Navigator.pop(ctx);
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text('请先选择一张图片作为自定义背景'),
-                                backgroundColor:
-                                    Theme.of(context).colorScheme.error,
-                                behavior: SnackBarBehavior.floating,
-                              ),
+                            SafeSnackBar.show(
+                              context,
+                              message: '请先选择一张图片作为自定义背景',
+                              idempotencyKey: 'bg_no_image',
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.error,
+                              behavior: SnackBarBehavior.floating,
                             );
                           }
                           return;
@@ -727,13 +730,13 @@ class _HomePageState extends State<HomePage> {
                         final ok =
                             await themeStore.switchToCustomBackground(bgFile);
                         if (!ok && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text('自定义背景保存失败，请检查图片是否可访问'),
-                              backgroundColor:
-                                  Theme.of(context).colorScheme.error,
-                              behavior: SnackBarBehavior.floating,
-                            ),
+                          SafeSnackBar.show(
+                            context,
+                            message: '自定义背景保存失败，请检查图片是否可访问',
+                            idempotencyKey: 'bg_save_error',
+                            backgroundColor:
+                                Theme.of(context).colorScheme.error,
+                            behavior: SnackBarBehavior.floating,
                           );
                         }
                         break;
@@ -748,23 +751,22 @@ class _HomePageState extends State<HomePage> {
                             .configureWorkspace(pendingWorkspacePath);
                         tabStore.closeAll();
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                  '工作空间已切换到：$pendingWorkspacePath'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
+                          SafeSnackBar.show(
+                            context,
+                            message: '工作空间已切换到：$pendingWorkspacePath',
+                            idempotencyKey: 'workspace_switched',
+                            behavior: SnackBarBehavior.floating,
                           );
                         }
                       } catch (e) {
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('切换工作空间失败: $e'),
-                              backgroundColor:
-                                  Theme.of(context).colorScheme.error,
-                              behavior: SnackBarBehavior.floating,
-                            ),
+                          SafeSnackBar.show(
+                            context,
+                            message: '切换工作空间失败: $e',
+                            idempotencyKey: 'workspace_switch_failed',
+                            backgroundColor:
+                                Theme.of(context).colorScheme.error,
+                            behavior: SnackBarBehavior.floating,
                           );
                         }
                       }
@@ -868,7 +870,7 @@ class _HomePageState extends State<HomePage> {
         card(
           mode: SkinMode.builtInBg,
           title: '内置背景',
-          desc: '内置 bgPic.jpg 背景图',
+          desc: '内置 $kFixedBackgroundAsset 背景图',
           bg: const Color(0xFFF5F3FF),
           fg: const Color(0xFF6D28D9),
           icon: Icons.photo_library_outlined,

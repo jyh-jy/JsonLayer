@@ -7,12 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
 /// 固定背景图资源路径（随包内置，不可替换）
-const String kFixedBackgroundAsset = 'images/bgPic.jpg';
+const String kFixedBackgroundAsset = 'images/bgTwo.jpg';
 
 /// 皮肤类型
 enum SkinMode {
   light, // 亮色模式（纯色背景）
-  builtInBg, // 亮色调 + 内置背景图（bgPic.jpg）
+  builtInBg, // 亮色调 + 内置背景图（kFixedBackgroundAsset）
   customBg, // 亮色调 + 用户上传的自定义背景图
 }
 
@@ -323,7 +323,7 @@ class ThemeStore extends ChangeNotifier {
     _persist();
   }
 
-  /// 切换到内置背景图模式（使用包内的 images/bgPic.jpg）
+  /// 切换到内置背景图模式（使用包内的 kFixedBackgroundAsset）
   void switchToBuiltInBg() {
     _skinMode = SkinMode.builtInBg;
     _themeMode = ThemeMode.light;
