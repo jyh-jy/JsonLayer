@@ -94,12 +94,21 @@ class _RequestResponsePanelState extends State<RequestResponsePanel>
       children: [
         _buildSubTabBar(theme),
         Expanded(
-          child: TabBarView(
-            controller: _subTabController,
-            children: [
-              _buildJsonMode(theme, tab),
-              _buildObjectMode(theme, tab),
-            ],
+          // 用 IndexedStack 替代 TabBarView：
+          // - JSON/对象两种 Editor 常驻内存，模式切换零重建
+          // - 对象模式避免每次切过去都重新 jsonDecode 整棵树并重建
+          //   SelectableText/ListView（这是切换卡顿的最大来源）
+          child: AnimatedBuilder(
+            animation: _subTabController.animation!,
+            builder: (context, child) {
+              return IndexedStack(
+                index: _subTabController.index,
+                children: [
+                  _buildJsonMode(theme, tab),
+                  _buildObjectMode(theme, tab),
+                ],
+              );
+            },
           ),
         ),
       ],

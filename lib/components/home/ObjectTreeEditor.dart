@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
+import 'package:json_layer/components/common/SearchBar.dart'
+    show SearchQueryBar;
+import 'package:json_layer/components/common/HorizontalScrollBar.dart';
 import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
@@ -36,35 +38,53 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
   final FocusNode _searchFocusNode = FocusNode();
   final Set<String> _collapsedPaths = {};
 
+  /// 内容宽度（横向滚动内容总宽），在内容变化时一次性测量，避免每帧重算。
+  double _contentWidth = 0;
+
+  /// 等宽字体（Consolas 13）单字符宽度，测量一次复用。
+  double _charWidth = 8;
+
+  /// 类型徽标（含 margin/padding）估算宽度，宁可偏大以免横向溢出。
+  double _badgeWidth = 64;
+
   // 搜索相关状态
   bool _showSearchBar = false;
   String _searchQuery = '';
   bool _caseSensitive = false;
   bool _isRegex = false;
   final List<MatchInfo> _matches = [];
-  final Map<String, int> _matchIndexByKey = {}; // "path:kind" -> index in _matches
+  final Map<String, int> _matchIndexByKey =
+      {}; // "path:kind" -> index in _matches
   int _currentMatchIndex = -1;
   final ScrollController _treeScrollController = ScrollController();
+  final ScrollController _horizontalScrollController = ScrollController();
   final Map<int, GlobalKey> _matchKeys = {};
 
   @override
   void initState() {
     super.initState();
     _parsed = _parseContent(widget.content);
+    _measureContentWidth();
   }
 
   @override
   void didUpdateWidget(ObjectTreeEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.content != oldWidget.content) {
-      _parsed = _parseContent(widget.content);
-      _recollectMatches();
+    // 完全相同的字符串直接短路：identical（同一对象）先命中 O(1)，
+    // 再退化为逐字符比对，避免大 JSON 反复 parse + recollect。
+    if (identical(widget.content, oldWidget.content) ||
+        widget.content == oldWidget.content) {
+      return;
     }
+    _parsed = _parseContent(widget.content);
+    _measureContentWidth();
+    _recollectMatches();
   }
 
   @override
   void dispose() {
     _treeScrollController.dispose();
+    _horizontalScrollController.dispose();
     _focusNode.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -108,11 +128,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     RegExp? regex;
     try {
       if (_isRegex) {
-        regex = RegExp(
-          q,
-          caseSensitive: _caseSensitive,
-          multiLine: false,
-        );
+        regex = RegExp(q, caseSensitive: _caseSensitive, multiLine: false);
       }
     } catch (_) {
       regex = null;
@@ -136,12 +152,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
         final gk = GlobalKey(debugLabel: 'match_$idx');
         _matchKeys[idx] = gk;
         _matchIndexByKey[lookup] = idx;
-        _matches.add(MatchInfo(
-          text: text,
-          kind: kind,
-          path: path,
-          key: gk,
-        ));
+        _matches.add(MatchInfo(text: text, kind: kind, path: path, key: gk));
       }
     }
 
@@ -203,7 +214,14 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
           children: [
             _buildHeader(theme),
             if (_showSearchBar) _buildSearchBarWrap(theme),
-            Expanded(child: _buildTree(theme)),
+            Expanded(
+              // 用 SelectionArea 包裹整棵树：一个系统选择区域即可让所有
+              // Text/Text.rich 都支持鼠标拖拽选择和复制，性能远好于每个
+              // 节点都用 SelectableText（后者会为每个节点建立独立的选择状态）。
+              child: SelectionArea(
+                child: _buildTree(theme),
+              ),
+            ),
           ],
         ),
       ),
@@ -379,6 +397,97 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     );
   }
 
+  /// 测量内容宽度（横向滚动内容总宽），用于替代昂贵的 [IntrinsicWidth]。
+  ///
+  /// 所有文本均为等宽 Consolas 13，故宽度 = 字符数 × 单字符宽度；缩进与
+  /// 徽标按固定像素叠加。只测最宽一行，远超递归布局的成本。
+  void _measureContentWidth() {
+    final painter = TextPainter(
+      text: const TextSpan(
+        text: 'M',
+        style: TextStyle(fontFamily: 'Consolas', fontSize: 13),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    _charWidth = painter.width;
+
+    final badgePainter = TextPainter(
+      text: const TextSpan(
+        text: 'boolean', // 最长的类型名
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    // margin-left 8 + padding 8 + 文本宽度，另加少量安全余量。
+    _badgeWidth = 16 + badgePainter.width + 4;
+
+    var maxWidth = 0.0;
+    // 内层滚动 padding.left 8 + 根对象 border 1。
+    _measureObject(_parsed, 9, (w) {
+      if (w > maxWidth) maxWidth = w;
+    });
+    // 右侧 padding 8 + 少量安全余量，避免搜索高亮边框等被裁切。
+    _contentWidth = maxWidth + 12;
+  }
+
+  void _measureObject(
+    Map<String, dynamic> map,
+    double left,
+    void Function(double) update,
+  ) {
+    final entries = map.entries.toList();
+    for (var i = 0; i < entries.length; i++) {
+      _measureField(
+        entries[i].key,
+        entries[i].value,
+        left,
+        i == entries.length - 1,
+        update,
+      );
+    }
+  }
+
+  void _measureField(
+    String key,
+    dynamic value,
+    double left,
+    bool isLast,
+    void Function(double) update,
+  ) {
+    if (value is Map) {
+      // 折叠头部行（对象）也可能是最宽一行，一并测量。
+      update(left + 8 + 14 + (key.length + 5) * _charWidth + _badgeWidth);
+      _measureObject(Map<String, dynamic>.from(value), left + 17, update);
+    } else if (value is List) {
+      update(left + 8 + 14 + (key.length + 5) * _charWidth + _badgeWidth);
+      for (var i = 0; i < value.length; i++) {
+        final item = value[i];
+        if (item is Map) {
+          _measureObject(Map<String, dynamic>.from(item), left + 41, update);
+        } else {
+          _measureLeaf(null, item, left + 24, i == value.length - 1, update);
+        }
+      }
+    } else {
+      _measureLeaf(key, value, left + 8, isLast, update);
+    }
+  }
+
+  void _measureLeaf(
+    String? key,
+    dynamic value,
+    double left,
+    bool isLast,
+    void Function(double) update,
+  ) {
+    final valueText = value == null ? 'null' : jsonEncode(value);
+    // key 显示为 "key"，另有 ': ' 两字符；末尾逗号占 1 字符。
+    final keyChars = key == null ? 0 : key.length + 2 + 2;
+    final trailing = isLast ? 0 : 1;
+    final chars = keyChars + valueText.length + trailing;
+    update(left + chars * _charWidth + _badgeWidth);
+  }
+
   Widget _buildTree(ThemeData theme) {
     if (_errorMessage != null) {
       return Center(
@@ -400,7 +509,11 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.schema, size: 48, color: Color(CommonConstants.textSecondaryColorValue)),
+            Icon(
+              Icons.schema,
+              size: 48,
+              color: Color(CommonConstants.textSecondaryColorValue),
+            ),
             const SizedBox(height: 12),
             Text(
               '暂无数据',
@@ -413,11 +526,44 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       );
     }
 
-    return ListView(
-      controller: _treeScrollController,
-      padding: const EdgeInsets.all(8),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildObjectNode(_parsed, 0, isRoot: true, path: 'root'),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // 用缓存的测量宽度替代 IntrinsicWidth，避免每次切换/布局都做
+              // 一次昂贵的整树 speculative layout。
+              final width = _contentWidth < constraints.maxWidth
+                  ? constraints.maxWidth
+                  : _contentWidth;
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                controller: _horizontalScrollController,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: constraints.maxWidth,
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: SizedBox(
+                    width: width,
+                    child: SingleChildScrollView(
+                      controller: _treeScrollController,
+                      padding: const EdgeInsets.all(8),
+                      child: _buildObjectNode(
+                        _parsed,
+                        0,
+                        isRoot: true,
+                        path: 'root',
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        HorizontalScrollBar(controller: _horizontalScrollController),
       ],
     );
   }
@@ -444,14 +590,10 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isRoot)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                '{',
-                style: _punctStyle(),
-              ),
-            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: Text('{', style: _punctStyle()),
+          ),
           if (collapsed)
             Padding(
               padding: const EdgeInsets.only(left: 8, top: 4),
@@ -471,13 +613,10 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
               final isLast = index == entries.length - 1;
               return _buildFieldRow(key, value, depth, isLast, '$path.$key');
             }),
-          if (!isRoot && !collapsed)
+          if (!collapsed)
             Padding(
               padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                '}',
-                style: _punctStyle(),
-              ),
+              child: Text('}', style: _punctStyle()),
             ),
         ],
       ),
@@ -549,8 +688,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
                 child: Row(
                   children: [
                     _buildPrimitiveValue(itemValue, path: '$path[$idx]'),
-                    if (!isLastItem)
-                      Text(',', style: _punctStyle()),
+                    if (!isLastItem) Text(',', style: _punctStyle()),
                   ],
                 ),
               );
@@ -661,7 +799,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
 
     Widget child;
     if (q.isEmpty || matchIndex == null) {
-      child = SelectableText(text, style: style);
+      child = Text(text, style: style);
     } else {
       child = _buildHighlightedRich(text, rawSource, q, style, isCurrent);
     }
@@ -741,16 +879,18 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       if (s > cursor) {
         spans.add(TextSpan(text: display.substring(cursor, s), style: style));
       }
-      spans.add(TextSpan(
-        text: display.substring(s, e),
-        style: style.copyWith(backgroundColor: bg),
-      ));
+      spans.add(
+        TextSpan(
+          text: display.substring(s, e),
+          style: style.copyWith(backgroundColor: bg),
+        ),
+      );
       cursor = e;
     }
     if (cursor < display.length) {
       spans.add(TextSpan(text: display.substring(cursor), style: style));
     }
-    return SelectableText.rich(TextSpan(children: spans));
+    return Text.rich(TextSpan(children: spans));
   }
 
   Widget _buildTypeBadge(String type, Color color) {
@@ -763,22 +903,26 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       ),
       child: Text(
         type,
-        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }
 
   TextStyle _keyStyle() => TextStyle(
-        color: Color(CommonConstants.jsonKeyColorValue),
-        fontFamily: 'Consolas',
-        fontSize: 13,
-      );
+    color: Color(CommonConstants.jsonKeyColorValue),
+    fontFamily: 'Consolas',
+    fontSize: 13,
+  );
 
   TextStyle _punctStyle() => TextStyle(
-        color: Color(CommonConstants.jsonPunctuationColorValue),
-        fontFamily: 'Consolas',
-        fontSize: 13,
-      );
+    color: Color(CommonConstants.jsonPunctuationColorValue),
+    fontFamily: 'Consolas',
+    fontSize: 13,
+  );
 
   String _getTypeName(dynamic value) {
     if (value == null) return 'null';
@@ -804,9 +948,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text(
           '新增字段',
           style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
@@ -821,22 +963,28 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
               decoration: InputDecoration(
                 labelText: '字段名',
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                  borderSide: BorderSide(
+                    color: Color(CommonConstants.borderColorValue),
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                  borderSide: BorderSide(
+                    color: Color(CommonConstants.borderColorValue),
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary, width: 1.5),
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
@@ -844,26 +992,33 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             TextField(
               controller: valueController,
               textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _confirmAddField(controller, valueController, ctx),
+              onSubmitted: (_) =>
+                  _confirmAddField(controller, valueController, ctx),
               decoration: InputDecoration(
                 labelText: '默认值 (JSON 格式)',
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                  borderSide: BorderSide(
+                    color: Color(CommonConstants.borderColorValue),
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Color(CommonConstants.borderColorValue)),
+                  borderSide: BorderSide(
+                    color: Color(CommonConstants.borderColorValue),
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary, width: 1.5),
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),

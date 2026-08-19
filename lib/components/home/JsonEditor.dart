@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/json.dart' as json_highlight;
 
-import 'package:json_layer/components/common/SearchBar.dart' show SearchQueryBar;
+import 'package:json_layer/components/common/SearchBar.dart'
+    show SearchQueryBar;
+import 'package:json_layer/components/common/HorizontalScrollBar.dart';
 import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 
@@ -43,6 +45,10 @@ class _JsonEditorState extends State<JsonEditor> {
   final FocusNode _searchFocusNode = FocusNode();
   int _lineCount = 1;
   String _longestLine = '';
+
+  /// 编辑器内容的测量宽度（最长行的像素宽度），在文本变化时一次性计算，
+  /// 避免每帧用 [IntrinsicWidth] 对整段文本做昂贵的固有宽度测量。
+  double _contentWidth = 0;
   int _lastPointerDownTime = 0;
   int _lastPointerDownPointer = -1;
 
@@ -64,6 +70,8 @@ class _JsonEditorState extends State<JsonEditor> {
       ..onNavigate = (shift) => shift ? _prevMatch() : _nextMatch();
     _editorFocusNode.attach(context, onKeyEvent: _onEditorKeyEvent);
     _updateLineCount();
+    _longestLine = _computeLongestLine(_controller.text);
+    _measureContentWidth();
     _controller.addListener(_onTextChanged);
   }
 
@@ -73,6 +81,7 @@ class _JsonEditorState extends State<JsonEditor> {
     if (widget.content != _controller.text) {
       _controller.text = widget.content;
       _updateLineCount();
+      _measureContentWidth();
     }
   }
 
@@ -88,16 +97,17 @@ class _JsonEditorState extends State<JsonEditor> {
     super.dispose();
   }
 
+  String _computeLongestLine(String text) => text.isEmpty
+      ? ''
+      : text.split('\n').reduce((a, b) => a.length > b.length ? a : b);
+
   void _onTextChanged() {
     _updateLineCount();
-    final text = _controller.text;
-    final longest = text.isEmpty
-        ? ''
-        : text.split('\n').reduce((a, b) => a.length > b.length ? a : b);
+    final longest = _computeLongestLine(_controller.text);
     if (longest != _longestLine) {
-      setState(() {
-        _longestLine = longest;
-      });
+      _longestLine = longest;
+      _measureContentWidth();
+      setState(() {});
     }
   }
 
@@ -299,8 +309,9 @@ class _JsonEditorState extends State<JsonEditor> {
       ),
       child: SearchQueryBar(
         currentMatch: _currentMatchIndex < 0 ? null : _currentMatchIndex + 1,
-        totalMatches:
-            _matches.isEmpty && _searchQuery.trim().isEmpty ? null : _matches.length,
+        totalMatches: _matches.isEmpty && _searchQuery.trim().isEmpty
+            ? null
+            : _matches.length,
         onQueryChanged: (q) {
           _searchQuery = q;
           _recollectMatches();
@@ -328,9 +339,9 @@ class _JsonEditorState extends State<JsonEditor> {
           Text(
             widget.title,
             style: theme.textTheme.bodySmall?.copyWith(
-                  color: Color(CommonConstants.textSecondaryColorValue),
-                  fontWeight: FontWeight.w500,
-                ),
+              color: Color(CommonConstants.textSecondaryColorValue),
+              fontWeight: FontWeight.w500,
+            ),
           ),
           const Spacer(),
           _buildActionButton(
@@ -382,12 +393,7 @@ class _JsonEditorState extends State<JsonEditor> {
   }
 
   Widget _buildEditor(ThemeData theme) {
-    final baseStyle = TextStyle(
-      fontFamily: 'Consolas',
-      fontSize: 13,
-      color: Color(CommonConstants.textPrimaryColorValue),
-      height: 1.5,
-    );
+    final baseStyle = _baseStyle;
     final lineHeight = 13 * 1.5;
     final maxLines = math.max(_lineCount, 1);
 
@@ -400,54 +406,71 @@ class _JsonEditorState extends State<JsonEditor> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final minHeight = constraints.maxHeight;
-                return NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    if (notification is ScrollUpdateNotification) {
-                      final offset = notification.metrics.pixels;
-                      if (_lineNumberScrollController.hasClients &&
-                          _lineNumberScrollController.offset != offset) {
-                        _lineNumberScrollController.jumpTo(offset);
-                      }
-                    }
-                    return false;
-                  },
-                  child: CodeTheme(
-                    data: CodeThemeData(styles: _buildHighlightStyles()),
-                    child: Scrollbar(
-                      controller: _verticalScrollController,
-                      child: SingleChildScrollView(
-                        controller: _verticalScrollController,
-                        child: _wrapInScrollView(
-                          minHeight: minHeight,
-                          Listener(
-                            onPointerDown: _handlePointerDown,
-                            child: TextField(
-                              focusNode: _editorFocusNode,
-                              controller: _controller,
-                              readOnly: widget.readOnly,
-                              maxLines: maxLines,
-                              style: baseStyle,
-                              cursorColor:
-                                  Color(CommonConstants.textPrimaryColorValue),
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              decoration: const InputDecoration(
-                                isCollapsed: true,
-                                contentPadding:
-                                    EdgeInsets.symmetric(vertical: 16),
-                                disabledBorder: InputBorder.none,
-                                border: InputBorder.none,
-                                focusedBorder: InputBorder.none,
+                final viewportWidth = constraints.maxWidth;
+                final editorWidth = _contentWidth < viewportWidth
+                    ? viewportWidth
+                    : _contentWidth;
+                return Column(
+                  children: [
+                    Expanded(
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is ScrollUpdateNotification) {
+                            // 外层垂直 SingleChildScrollView 的滚动位置同步给行号
+                            final offset = notification.metrics.pixels;
+                            if (_lineNumberScrollController.hasClients &&
+                                _lineNumberScrollController.offset != offset) {
+                              _lineNumberScrollController.jumpTo(offset);
+                            }
+                          }
+                          return false;
+                        },
+                        child: CodeTheme(
+                          data: CodeThemeData(styles: _buildHighlightStyles()),
+                          child: Scrollbar(
+                            controller: _verticalScrollController,
+                            child: SingleChildScrollView(
+                              controller: _verticalScrollController,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                controller: _horizontalScrollController,
+                                child: SizedBox(
+                                  width: editorWidth,
+                                  child: Listener(
+                                    onPointerDown: _handlePointerDown,
+                                    child: TextField(
+                                      focusNode: _editorFocusNode,
+                                      controller: _controller,
+                                      readOnly: widget.readOnly,
+                                      maxLines: maxLines,
+                                      style: baseStyle,
+                                      cursorColor: Color(
+                                        CommonConstants.textPrimaryColorValue,
+                                      ),
+                                      autocorrect: false,
+                                      enableSuggestions: false,
+                                      decoration: const InputDecoration(
+                                        isCollapsed: true,
+                                        contentPadding: EdgeInsets.symmetric(
+                                          vertical: 16,
+                                        ),
+                                        disabledBorder: InputBorder.none,
+                                        border: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                      ),
+                                      onChanged: widget.onChanged,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              onChanged: widget.onChanged,
                             ),
                           ),
-                          baseStyle,
                         ),
                       ),
                     ),
-                  ),
+                    // 水平滚动条固定在底部，始终可见
+                    _buildHorizontalScrollbar(),
+                  ],
                 );
               },
             ),
@@ -457,32 +480,35 @@ class _JsonEditorState extends State<JsonEditor> {
     );
   }
 
-  Widget _wrapInScrollView(
-    Widget codeField,
-    TextStyle textStyle, {
-    required double minHeight,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Scrollbar(
-          thickness: 6,
-          radius: const Radius.circular(3),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            controller: _horizontalScrollController,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: constraints.maxWidth,
-                minHeight: minHeight,
-              ),
-              child: IntrinsicWidth(
-                child: codeField,
-              ),
-            ),
-          ),
-        );
-      },
-    );
+  Widget _buildHorizontalScrollbar() {
+    return HorizontalScrollBar(controller: _horizontalScrollController);
+  }
+
+  /// 编辑器文本样式（提取为 getter，供宽度测量复用同一套字体参数）。
+  TextStyle get _baseStyle => TextStyle(
+    fontFamily: 'Consolas',
+    fontSize: 13,
+    color: Color(CommonConstants.textPrimaryColorValue),
+    height: 1.5,
+  );
+
+  /// 用 [TextPainter] 一次性测量最长行的像素宽度。
+  ///
+  /// 结果缓存到 [_contentWidth]，布局时直接用 [SizedBox] 固定宽度给
+  /// [TextField]，让其 scrollController（水平方向）自然溢出，避免嵌套
+  /// 横向 SingleChildScrollView 的双滚动开销。
+  void _measureContentWidth() {
+    final text = _longestLine;
+    if (text.isEmpty) {
+      _contentWidth = 0;
+      return;
+    }
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: _baseStyle),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    _contentWidth = painter.width + 24; // 右侧留白，避免行尾光标/选区被裁切。
   }
 
   Widget _buildLineNumbers(double lineHeight) {
@@ -543,9 +569,9 @@ class _JsonEditorState extends State<JsonEditor> {
       _controller.text = formatted;
       widget.onChanged(formatted);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('格式化失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('格式化失败: $e')));
     }
   }
 
@@ -558,15 +584,24 @@ class _JsonEditorState extends State<JsonEditor> {
       _controller.text = compressed;
       widget.onChanged(compressed);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('压缩失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('压缩失败: $e')));
     }
   }
 
   static const Set<String> _separators = {
-    ' ', '\t', '\n', '\r',
-    '{', '}', '[', ']', ':', ',', '"',
+    ' ',
+    '\t',
+    '\n',
+    '\r',
+    '{',
+    '}',
+    '[',
+    ']',
+    ':',
+    ',',
+    '"',
   };
 
   bool _isWordChar(String char) {
@@ -575,7 +610,8 @@ class _JsonEditorState extends State<JsonEditor> {
 
   void _handlePointerDown(PointerDownEvent event) {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final isDoubleTap = _lastPointerDownPointer == event.pointer &&
+    final isDoubleTap =
+        _lastPointerDownPointer == event.pointer &&
         now - _lastPointerDownTime < 300;
 
     _lastPointerDownTime = now;
@@ -621,7 +657,7 @@ class _JsonEditorState extends State<JsonEditor> {
 /// 搜索栏打开期间，编辑器聚焦时也能响应 Enter/Shift+Enter 导航与 Esc 关闭。
 class _JsonCodeController extends CodeController {
   _JsonCodeController({required String text})
-      : super(text: text, language: json_highlight.json);
+    : super(text: text, language: json_highlight.json);
 
   /// 搜索栏是否可见（由外部同步），用于决定 Enter/Esc 是否用于搜索。
   bool searchBarVisible = false;
@@ -732,12 +768,11 @@ class _JsonCodeController extends CodeController {
                 decorationColor: SearchHighlight.currentFrameColor,
                 decorationThickness: 1.5,
               )
-            : baseStyle.copyWith(backgroundColor: SearchHighlight.matchBackground);
+            : baseStyle.copyWith(
+                backgroundColor: SearchHighlight.matchBackground,
+              );
         spans.add(
-          TextSpan(
-            text: text.substring(local, end),
-            style: highlightStyle,
-          ),
+          TextSpan(text: text.substring(local, end), style: highlightStyle),
         );
         local = end;
         if (end >= mEnd) matchIndex++;
