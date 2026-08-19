@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:json_layer/model/DocumentItem.dart';
 
@@ -117,7 +118,7 @@ class TabStore extends ChangeNotifier {
   ///
   /// 支持两种情况：
   /// - 文件重命名：oldPath 完全匹配标签的 path
-  /// - 文件夹重命名：标签的 path 以 oldPath\ 开头（子文件/子文件夹）
+  /// - 文件夹重命名：更新该目录内子文件的路径。
   void updateTabPath(String oldPath, String newPath, String newTitle) {
     bool changed = false;
     for (var i = 0; i < _tabs.length; i++) {
@@ -129,10 +130,10 @@ class TabStore extends ChangeNotifier {
           title: newTitle,
         );
         changed = true;
-      } else if (tab.path.startsWith('$oldPath\\')) {
-        final relativePath = tab.path.substring(oldPath.length);
-        final newChildPath = '$newPath$relativePath';
-        final newChildTitle = newChildPath.split('\\').last;
+      } else if (p.isWithin(oldPath, tab.path)) {
+        final relativePath = p.relative(tab.path, from: oldPath);
+        final newChildPath = p.join(newPath, relativePath);
+        final newChildTitle = p.basename(newChildPath);
         _tabs[i] = tab.copyWith(
           path: newChildPath,
           itemId: newChildPath,

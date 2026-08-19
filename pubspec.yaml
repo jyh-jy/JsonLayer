@@ -44,6 +44,9 @@ dependencies:
   # 应用路径（自定义背景图持久化目录）
   path_provider: ^2.1.4
 
+  # 跨平台文件路径处理
+  path: ^1.9.1
+
   # 文件/目录选择
   file_picker: ^8.1.2
 

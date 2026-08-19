@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import 'package:json_layer/components/common/SafeSnackBar.dart';
@@ -53,7 +54,12 @@ class _WelcomePageState extends State<WelcomePage> {
 
     setState(() => _isConfiguring = true);
     try {
-      final workspacePath = '$basePath\\${_folderController.text.trim().isEmpty ? CommonConstants.workspaceDirName : _folderController.text.trim()}';
+      final workspacePath = p.join(
+        basePath,
+        _folderController.text.trim().isEmpty
+            ? CommonConstants.workspaceDirName
+            : _folderController.text.trim(),
+      );
       final store = context.read<WorkspaceStore>();
       await store.configureWorkspace(workspacePath);
       if (mounted) {

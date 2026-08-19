@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import 'package:json_layer/components/common/SafeSnackBar.dart';
@@ -311,7 +312,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     final store = context.read<WorkspaceStore>();
     int successCount = 0;
     for (final file in files) {
-      final fileName = file.path.split('\\').last;
+      final fileName = p.basename(file.path);
       final isJson = fileName.toLowerCase().endsWith('.json');
       if (!isJson) continue;
       try {
@@ -379,7 +380,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         // 不允许拖入自身或自身的子级
         final data = details.data;
         if (data.path == node.path) return false;
-        if (data.path.startsWith('${node.path}\\')) return false;
+        if (p.isWithin(data.path, node.path)) return false;
         setState(() => _dropTargetPath = node.path);
         return true;
       },
@@ -582,11 +583,11 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   /// 处理内部拖放（移动文件/文件夹）
   Future<void> _handleInternalDrop(_DragData data, String destFolderPath) async {
     if (data.path == destFolderPath) return;
-    if (data.path.startsWith('$destFolderPath\\')) return;
+    if (p.isWithin(data.path, destFolderPath)) return;
 
     final store = context.read<WorkspaceStore>();
-    final name = data.path.split('\\').last;
-    final newPath = '$destFolderPath\\$name';
+    final name = p.basename(data.path);
+    final newPath = p.join(destFolderPath, name);
 
     // 检查目标是否已存在同名文件
     final exists = await store.exists(newPath);
@@ -605,7 +606,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
       if (mounted) {
         SafeSnackBar.show(
           context,
-          message: '已移动到 ${destFolderPath.split('\\').last}',
+          message: '已移动到 ${p.basename(destFolderPath)}',
           idempotencyKey: 'move_success',
         );
       }
