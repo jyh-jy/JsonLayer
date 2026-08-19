@@ -661,7 +661,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
 
     Widget child;
     if (q.isEmpty || matchIndex == null) {
-      child = Text(text, style: style);
+      child = SelectableText(text, style: style);
     } else {
       child = _buildHighlightedRich(text, rawSource, q, style, isCurrent);
     }
@@ -750,7 +750,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     if (cursor < display.length) {
       spans.add(TextSpan(text: display.substring(cursor), style: style));
     }
-    return Text.rich(TextSpan(children: spans));
+    return SelectableText.rich(TextSpan(children: spans));
   }
 
   Widget _buildTypeBadge(String type, Color color) {

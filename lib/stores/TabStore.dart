@@ -112,4 +112,35 @@ class TabStore extends ChangeNotifier {
       return null;
     }
   }
+
+  /// 文件/文件夹重命名后更新相关标签页的路径。
+  ///
+  /// 支持两种情况：
+  /// - 文件重命名：oldPath 完全匹配标签的 path
+  /// - 文件夹重命名：标签的 path 以 oldPath\ 开头（子文件/子文件夹）
+  void updateTabPath(String oldPath, String newPath, String newTitle) {
+    bool changed = false;
+    for (var i = 0; i < _tabs.length; i++) {
+      final tab = _tabs[i];
+      if (tab.path == oldPath) {
+        _tabs[i] = tab.copyWith(
+          path: newPath,
+          itemId: newPath,
+          title: newTitle,
+        );
+        changed = true;
+      } else if (tab.path.startsWith('$oldPath\\')) {
+        final relativePath = tab.path.substring(oldPath.length);
+        final newChildPath = '$newPath$relativePath';
+        final newChildTitle = newChildPath.split('\\').last;
+        _tabs[i] = tab.copyWith(
+          path: newChildPath,
+          itemId: newChildPath,
+          title: newChildTitle,
+        );
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
+  }
 }

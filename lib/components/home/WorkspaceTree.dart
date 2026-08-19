@@ -939,11 +939,22 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     DocumentItem node,
     WorkspaceStore store,
     BuildContext ctx,
-  ) {
+  ) async {
     final name = controller.text.trim();
     if (name.isNotEmpty && name != node.name) {
-      store.renameItem(node.path, name);
-      Navigator.pop(ctx);
+      final oldPath = node.path;
+      final parentDir = oldPath.substring(0, oldPath.lastIndexOf('\\'));
+      final newPath = '$parentDir\\$name';
+
+      // 先获取 tabStore，避免异步间隙后使用 BuildContext
+      final tabStore = context.read<TabStore>();
+
+      await store.renameItem(oldPath, name);
+
+      // 重命名成功后更新标签页路径，确保标签不会丢失
+      tabStore.updateTabPath(oldPath, newPath, name);
+
+      if (mounted) Navigator.pop(ctx);
     }
   }
 

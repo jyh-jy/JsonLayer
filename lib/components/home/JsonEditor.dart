@@ -464,16 +464,20 @@ class _JsonEditorState extends State<JsonEditor> {
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          controller: _horizontalScrollController,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: constraints.maxWidth,
-              minHeight: minHeight,
-            ),
-            child: IntrinsicWidth(
-              child: codeField,
+        return Scrollbar(
+          thickness: 6,
+          radius: const Radius.circular(3),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: _horizontalScrollController,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minWidth: constraints.maxWidth,
+                minHeight: minHeight,
+              ),
+              child: IntrinsicWidth(
+                child: codeField,
+              ),
             ),
           ),
         );

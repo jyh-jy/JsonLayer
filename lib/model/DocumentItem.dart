@@ -100,6 +100,8 @@ class DocumentTab {
   bool get isBound => path.isNotEmpty;
 
   DocumentTab copyWith({
+    String? itemId,
+    String? path,
     String? title,
     String? requestBody,
     String? responseBody,
@@ -108,8 +110,8 @@ class DocumentTab {
   }) {
     return DocumentTab(
       id: id,
-      itemId: itemId,
-      path: path,
+      itemId: itemId ?? this.itemId,
+      path: path ?? this.path,
       title: title ?? this.title,
       documentType: documentType,
       requestBody: requestBody ?? this.requestBody,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -7,6 +8,7 @@ import 'package:json_layer/components/home/WorkspaceTree.dart';
 import 'package:json_layer/components/home/DocumentTabs.dart';
 import 'package:json_layer/components/home/RequestResponsePanel.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
+import 'package:json_layer/stores/TabStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
 
 /// 主页面：三栏布局（文件树 + 标签栏 + 编辑器）。
@@ -28,24 +30,66 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  KeyEventResult _onGlobalKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent && HardwareKeyboard.instance.isControlPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyS) {
+        _saveActiveTab();
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.ignored;
+  }
+
+  /// 全局 Ctrl+S 保存：将当前激活标签的数据写回磁盘。
+  Future<void> _saveActiveTab() async {
+    final tabStore = context.read<TabStore>();
+    final tab = tabStore.activeTab;
+    if (tab == null) return;
+
+    if (!tab.isBound) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('当前文档未绑定磁盘文件，请先在左侧新建或打开一个 JSON 文档'),
+        ),
+      );
+      return;
+    }
+
+    final workspaceStore = context.read<WorkspaceStore>();
+    try {
+      await workspaceStore.writeDocument(tab.path, tab.requestBody);
+      if (!mounted) return;
+      tabStore.updateTab(tab.id, isDirty: false);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(CommonConstants.backgroundColorValue),
-      body: Column(
-        children: [
-          _buildAppBar(),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildLeftPanel(),
-                _buildVerticalDivider(),
-                Expanded(child: _buildRightPanel()),
-              ],
+      body: Focus(
+        onKeyEvent: _onGlobalKeyEvent,
+        child: Column(
+          children: [
+            _buildAppBar(),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildLeftPanel(),
+                  _buildVerticalDivider(),
+                  Expanded(child: _buildRightPanel()),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
