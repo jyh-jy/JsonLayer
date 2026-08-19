@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -149,8 +150,219 @@ class _HomePageState extends State<HomePage> {
     return Container(
       width: CommonConstants.leftNavWidth,
       color: Color(CommonConstants.sidebarColorValue),
-      child: const WorkspaceTree(),
+      child: Column(
+        children: [
+          const Expanded(child: WorkspaceTree()),
+          _buildLeftFooter(),
+        ],
+      ),
     );
+  }
+
+  /// 左侧栏底部：设置按钮
+  Widget _buildLeftFooter() {
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Color(CommonConstants.borderColorValue)),
+        ),
+      ),
+      child: Tooltip(
+        message: '设置',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
+          onTap: _showSettingsDialog,
+          splashColor: CommonConstants.primaryOverlay(0.08),
+          highlightColor: CommonConstants.primaryOverlay(0.05),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.settings_outlined,
+                  size: CommonConstants.buttonIconSize,
+                  color: Color(CommonConstants.textSecondaryColorValue),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '设置',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(CommonConstants.textSecondaryColorValue),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 设置对话框：修改工作空间路径
+  Future<void> _showSettingsDialog() async {
+    final workspaceStore = context.read<WorkspaceStore>();
+    final tabStore = context.read<TabStore>();
+
+    final newPath = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        final controller = TextEditingController(
+          text: workspaceStore.workspacePath,
+        );
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: const Text(
+              '设置',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            content: SizedBox(
+              width: 520,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '工作空间路径',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Color(CommonConstants.textSecondaryColorValue),
+                          fontWeight: FontWeight.w500,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          readOnly: true,
+                          decoration: InputDecoration(
+                            hintText: '选择工作空间目录...',
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: Color(CommonConstants.borderColorValue),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: Color(CommonConstants.borderColorValue),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(
+                                color: Theme.of(ctx).colorScheme.primary,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: () async {
+                          final selected =
+                              await FilePicker.platform.getDirectoryPath(
+                            dialogTitle: '选择工作空间目录',
+                            initialDirectory: workspaceStore.workspacePath,
+                          );
+                          if (selected != null) {
+                            controller.text = selected;
+                            setDialogState(() {});
+                          }
+                        },
+                        style: FilledButton.styleFrom(
+                          backgroundColor:
+                              Theme.of(ctx).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.folder_open, size: 16),
+                        label: const Text('选择'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '切换工作空间后会清空当前已打开的所有标签页。',
+                    style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                          color: Color(CommonConstants.textSecondaryColorValue),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Color(CommonConstants.textPrimaryColorValue),
+                  side: BorderSide(color: Color(CommonConstants.borderColorValue)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(ctx).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(ctx, controller.text),
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (newPath == null || newPath.isEmpty) return;
+    if (newPath == workspaceStore.workspacePath) return;
+
+    try {
+      await workspaceStore.configureWorkspace(newPath);
+      // 切换工作空间：关闭所有标签，内容对不上了
+      tabStore.closeAll();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('工作空间已切换到：$newPath'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('切换工作空间失败: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Widget _buildVerticalDivider() {
