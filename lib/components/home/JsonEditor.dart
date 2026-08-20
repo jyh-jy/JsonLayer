@@ -93,11 +93,31 @@ class _JsonEditorState extends State<JsonEditor> {
   @override
   void didUpdateWidget(JsonEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.content != _controller.text) {
-      _controller.text = widget.content;
-      _updateLineCount();
-      _measureContentWidth();
-    }
+    if (widget.content == _controller.text) return;
+
+    // 输入法拼字进行中，绝对不能覆写 controller。
+    //
+    // 编辑内容会经 onChanged → TabStore → Consumer 重建回传到这里，回传途中
+    // 用户往往还在拼字。此刻写 controller 会清空 composing，输入法以为字还没
+    // 提交、敲定时再提交一次 —— 表现为「汉字出现两次 + 光标跳回第一行」。
+    // 拼字结束后文本自然会再触发一次同步，什么都不做是安全的。
+    if (_controller.value.composing.isValid) return;
+
+    _syncExternalContent(widget.content);
+    _updateLineCount();
+    _measureContentWidth();
+  }
+
+  /// 用外部内容替换编辑器文本，并尽量保住光标位置。
+  ///
+  /// 不能用 `_controller.text = x`：它的 setter 会把 selection 重置成
+  /// `collapsed(offset: -1)`（光标弹回开头），并清空 composing。
+  void _syncExternalContent(String content) {
+    final offset = _controller.selection.baseOffset.clamp(0, content.length);
+    _controller.value = TextEditingValue(
+      text: content,
+      selection: TextSelection.collapsed(offset: offset),
+    );
   }
 
   @override
@@ -726,7 +746,7 @@ class _JsonEditorState extends State<JsonEditor> {
       if (text.isEmpty) return;
       final decoded = jsonDecode(text);
       final formatted = const JsonEncoder.withIndent('  ').convert(decoded);
-      _controller.text = formatted;
+      _syncExternalContent(formatted);
       widget.onChanged(formatted);
       _flashSuccess(_ToolbarAction.format);
     } catch (e) {
@@ -745,7 +765,7 @@ class _JsonEditorState extends State<JsonEditor> {
       if (text.isEmpty) return;
       final decoded = jsonDecode(text);
       final compressed = jsonEncode(decoded);
-      _controller.text = compressed;
+      _syncExternalContent(compressed);
       widget.onChanged(compressed);
       _flashSuccess(_ToolbarAction.compress);
     } catch (e) {
