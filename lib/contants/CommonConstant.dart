@@ -16,6 +16,9 @@ class CommonConstants {
   /// 提示词框框预设内容存储 key
   static const String presetPromptKey = 'preset_prompt';
 
+  /// 文件树展开状态存储 key（存文件夹绝对路径列表）
+  static const String expandedFolderPathsKey = 'expanded_folder_paths';
+
   /// JSON 默认缩进空格数
   static const int defaultIndentSpaces = 2;
 
@@ -24,6 +27,23 @@ class CommonConstants {
   static const double tabBarHeight = 40.0;
   static const double toolbarHeight = 40.0;
   static const double editorHeaderHeight = 32.0;
+
+  /// 标签页标题最大宽度（超出省略号）
+  static const double tabTitleMaxWidth = 140.0;
+
+  /// 文件树
+  static const double treeRowHeight = 26.0;
+  static const double treeIndentWidth = 14.0;
+  static const double treeRowRadius = 4.0;
+  static const double treeSearchBarHeight = 28.0;
+
+  /// 毛玻璃（有背景图时顶栏/侧栏必须保持半透明，否则模糊层看不见）
+  static const double glassBlurSigma = 20.0;
+  static const double glassToolbarAlpha = 0.65;
+  static const double glassSidebarAlpha = 0.55;
+
+  /// 行悬停淡底透明度（文件树行、标签页）
+  static const double rowHoverAlpha = 0.06;
 
   /// 颜色常量（APIFOX 风格）
   static const int primaryColorValue = 0xFF6366F1; // Indigo
@@ -34,6 +54,12 @@ class CommonConstants {
   static const int borderColorValue = 0xFFE5E7EB;
   static const int textPrimaryColorValue = 0xFF1F2937;
   static const int textSecondaryColorValue = 0xFF6B7280;
+
+  /// 危险动作色（删除、关闭所有）
+  static const int destructiveColorValue = 0xFFDC2626;
+
+  /// LOG 文档的标识色（区别于 JSON 用主色）
+  static const int logColorValue = 0xFFFF9800;
 
   /// JSON 语法高亮颜色（浅色主题，适配白色背景）
   static const int jsonKeyColorValue = 0xFF001080; // 键名：深蓝

@@ -71,7 +71,6 @@ class FileWorkspaceService implements WorkspaceService {
       path: dir.path,
       itemType: DocumentItemType.folder,
       children: children,
-      isExpanded: true,
     );
   }
 
@@ -86,7 +85,6 @@ class FileWorkspaceService implements WorkspaceService {
       path: folderPath,
       itemType: DocumentItemType.folder,
       children: const [],
-      isExpanded: false,
     );
   }
 

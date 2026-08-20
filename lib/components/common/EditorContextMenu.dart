@@ -4,6 +4,54 @@ import 'package:flutter/material.dart';
 
 import 'package:json_layer/contants/CommonConstant.dart';
 
+/// 主动弹出一个 [EditorContextMenu]（用于文件树、标签栏这类自己处理右键的地方）。
+///
+/// 编辑器内部走的是 `contextMenuBuilder`，由 Flutter 的 Overlay 托管；这里没有
+/// 那套机制，于是借一个**透明 barrier 的 dialog 路由**来复刻 `showMenu` 免费提供
+/// 的三件事：点击外部关闭、Esc 关闭、返回 Future。[EditorContextMenu] 本身就是
+/// 全屏 [Stack] + [Positioned]，塞进路由正好铺满。
+///
+/// 每个条目的 [EditorMenuEntry.onTap] 会被自动包装成「先关菜单再执行」，
+/// 调用方直接把业务回调挂上即可，无需再关心 pop。
+Future<void> showEditorContextMenu({
+  required BuildContext context,
+  required Offset anchor,
+  required List<EditorMenuNode> entries,
+}) {
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.transparent,
+    barrierDismissible: true,
+    // 菜单要贴着光标定位，不能被安全区往里挤
+    useSafeArea: false,
+    builder: (dialogContext) {
+      return EditorContextMenu(
+        anchor: anchor,
+        entries: [
+          for (final entry in entries)
+            switch (entry) {
+              EditorMenuDivider() => entry,
+              EditorMenuEntry(onTap: final onTap) =>
+                onTap == null
+                    // 置灰条目保持不可点，不要包装出一个「只关菜单」的假回调
+                    ? entry
+                    : EditorMenuEntry(
+                        label: entry.label,
+                        icon: entry.icon,
+                        shortcut: entry.shortcut,
+                        color: entry.color,
+                        onTap: () {
+                          Navigator.of(dialogContext).pop();
+                          onTap();
+                        },
+                      ),
+            },
+        ],
+      );
+    },
+  );
+}
+
 /// 右键菜单节点基类（条目或分割线）。
 sealed class EditorMenuNode {
   const EditorMenuNode();

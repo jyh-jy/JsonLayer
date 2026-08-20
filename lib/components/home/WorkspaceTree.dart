@@ -6,6 +6,10 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
+import 'package:json_layer/components/common/DialogActions.dart';
+import 'package:json_layer/components/common/EditorActionButton.dart';
+import 'package:json_layer/components/common/EditorContextMenu.dart';
+import 'package:json_layer/components/common/HoverBuilder.dart';
 import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/model/DocumentItem.dart';
@@ -28,12 +32,21 @@ class WorkspaceTree extends StatefulWidget {
 }
 
 class _WorkspaceTreeState extends State<WorkspaceTree> {
-  final Set<String> _expandedFolderPaths = {};
   String? _highlightPath;
   String? _dropTargetPath;
   bool _isExternalDragging = false;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _treeScrollController = ScrollController();
   String _searchQuery = '';
+
+  /// 「新建」按钮的位置锚点，用于让下拉菜单贴着按钮弹出。
+  final GlobalKey _createButtonKey = GlobalKey();
+
+  /// 搜索过滤时被强制展开的文件夹（命中项的祖先链）。
+  ///
+  /// 与用户手动展开的状态（存在 [WorkspaceStore] 里）分开：搜索是临时视图，
+  /// 清空搜索词后应当回到用户自己的展开状态，不能污染它。每帧重建。
+  final Set<String> _searchForceExpanded = {};
 
   @override
   void initState() {
@@ -44,6 +57,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   @override
   void dispose() {
     _searchController.dispose();
+    _treeScrollController.dispose();
     super.dispose();
   }
 
@@ -60,9 +74,8 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
   /// 展开路径的所有父级文件夹并高亮目标文件
   void _expandAndHighlight(String path) {
     final store = context.read<WorkspaceStore>();
-    final parentPaths = store.getParentPaths(path);
+    store.expandPaths(store.getParentPaths(path));
     setState(() {
-      _expandedFolderPaths.addAll(parentPaths);
       _highlightPath = path;
     });
     // 3秒后取消高亮
@@ -103,135 +116,112 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          _buildHeaderButton(
+          EditorActionButton(
+            key: _createButtonKey,
             icon: Icons.add,
             tooltip: '新建',
-            onTap: () => _showCreateMenu(),
+            color: Color(CommonConstants.primaryColorValue),
+            onTap: _showCreateMenu,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildHeaderButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
-        splashColor: CommonConstants.primaryOverlay(0.08),
-        highlightColor: CommonConstants.primaryOverlay(0.05),
-        child: Padding(
-          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
-          child: Icon(
-            icon,
-            size: 16,
-            color: Color(CommonConstants.textSecondaryColorValue),
-          ),
-        ),
-      ),
-    );
-  }
-
+  /// 菜单贴着「新建」按钮的左下角弹出。
+  ///
+  /// 旧实现拿的是整棵树的 RenderBox，菜单会飘到侧栏顶部而不是按钮下方。
   void _showCreateMenu() {
-    final renderBox = context.findRenderObject() as RenderBox;
-    final position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        renderBox.localToGlobal(Offset.zero),
-        renderBox.localToGlobal(renderBox.size.bottomRight(Offset.zero)),
-      ),
-      Offset.zero & MediaQuery.of(context).size,
-    );
-    showMenu<String>(
+    final box = _createButtonKey.currentContext?.findRenderObject();
+    final anchor = box is RenderBox
+        ? box.localToGlobal(box.size.bottomLeft(Offset.zero))
+        : Offset.zero;
+    showEditorContextMenu(
       context: context,
-      position: position,
-      color: Color(CommonConstants.surfaceColorValue),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
-        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
-      ),
-      items: [
-        _buildMenuItem(
-          '新建文件夹', Icons.create_new_folder, 'folder',
-          iconColor: Color(CommonConstants.primaryColorValue),
+      anchor: anchor,
+      entries: [
+        EditorMenuEntry(
+          label: '新建文件夹',
+          icon: Icons.create_new_folder,
+          color: Color(CommonConstants.primaryColorValue),
+          onTap: () => _onCreateItem('folder'),
         ),
-        _buildMenuItem(
-          '新建 JSON 文档', Icons.insert_drive_file, 'json',
-          iconColor: Color(CommonConstants.primaryColorValue),
+        EditorMenuEntry(
+          label: '新建 JSON 文档',
+          icon: Icons.insert_drive_file,
+          color: Color(CommonConstants.primaryColorValue),
+          onTap: () => _onCreateItem('json'),
         ),
       ],
-    ).then((value) {
-      if (value != null) _onCreateItem(value);
-    });
-  }
-
-  PopupMenuItem<String> _buildMenuItem(
-    String label,
-    IconData icon,
-    String value, {
-    Color? iconColor,
-  }) {
-    return PopupMenuItem<String>(
-      value: value,
-      child: Container(
-        height: CommonConstants.menuItemHeight,
-        alignment: Alignment.centerLeft,
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 16,
-              color: iconColor ?? Color(CommonConstants.textSecondaryColorValue),
-            ),
-            const SizedBox(width: CommonConstants.menuItemPadding),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: CommonConstants.menuFontSize,
-                color: Color(CommonConstants.textPrimaryColorValue),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
   Widget _buildSearchBar() {
+    final hasQuery = _searchQuery.isNotEmpty;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      child: Container(
-        height: 28,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Color(CommonConstants.borderColorValue)),
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 8),
-            const Icon(Icons.search, size: 14, color: Colors.grey),
-            const SizedBox(width: 6),
-            Expanded(
-              child: TextField(
-                controller: _searchController,
-                onChanged: (v) => setState(() => _searchQuery = v),
-                style: const TextStyle(fontSize: 12),
-                decoration: const InputDecoration(
-                  hintText: '搜索文档',
-                  hintStyle: TextStyle(fontSize: 11, color: Colors.grey),
-                  border: InputBorder.none,
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(vertical: 6),
-                ),
+      child: HoverBuilder(
+        cursor: SystemMouseCursors.text,
+        builder: (context, isHovered) {
+          return AnimatedContainer(
+            duration: CommonConstants.hoverAnimation,
+            curve: Curves.easeOut,
+            height: CommonConstants.treeSearchBarHeight,
+            decoration: BoxDecoration(
+              color: Color(CommonConstants.surfaceColorValue),
+              borderRadius: BorderRadius.circular(
+                CommonConstants.treeRowRadius,
+              ),
+              border: Border.all(
+                color: hasQuery || isHovered
+                    ? Color(CommonConstants.primaryColorValue)
+                    : Color(CommonConstants.borderColorValue),
               ),
             ),
-          ],
-        ),
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.search,
+                  size: 14,
+                  color: hasQuery
+                      ? Color(CommonConstants.primaryColorValue)
+                      : Color(CommonConstants.textSecondaryColorValue),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    style: const TextStyle(fontSize: 12),
+                    decoration: InputDecoration(
+                      hintText: '搜索文档',
+                      hintStyle: TextStyle(
+                        fontSize: 11,
+                        color: Color(CommonConstants.textSecondaryColorValue),
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 6),
+                    ),
+                  ),
+                ),
+                // 有搜索词时才出现的清空键
+                if (hasQuery)
+                  EditorActionButton(
+                    icon: Icons.close,
+                    tooltip: '清空搜索',
+                    color: Color(CommonConstants.textSecondaryColorValue),
+                    onTap: () {
+                      _searchController.clear();
+                      setState(() => _searchQuery = '');
+                    },
+                  ),
+                const SizedBox(width: 2),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -253,7 +243,9 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
         if (root == null) {
           return const Center(child: Text('暂无数据'));
         }
-        final filtered = _filterTree(root, _searchQuery);
+        // 搜索的强制展开集合每帧重算，不写回 store
+        _searchForceExpanded.clear();
+        final filtered = _filterTree(root, _searchQuery, _searchForceExpanded);
         return DropTarget(
           onDragEntered: (_) => setState(() => _isExternalDragging = true),
           onDragExited: (_) => setState(() => _isExternalDragging = false),
@@ -263,7 +255,21 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           },
           child: Stack(
             children: [
-              _buildTreeNode(filtered, 0),
+              // 树本身必须能滚：之前是裸 Column 套在 Expanded 里，
+              // 文件一多就 RenderFlex 溢出，底部条目永远点不到。
+              // 拖放蒙层留在 Stack 里不跟着滚。
+              Positioned.fill(
+                child: Scrollbar(
+                  controller: _treeScrollController,
+                  child: SingleChildScrollView(
+                    controller: _treeScrollController,
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: _buildTreeNode(filtered, 0),
+                    ),
+                  ),
+                ),
+              ),
               if (_isExternalDragging)
                 Positioned.fill(
                   child: Container(
@@ -338,20 +344,30 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     }
   }
 
-  DocumentItem _filterTree(DocumentItem node, String query) {
+  /// 过滤文件树，并把「含有命中项、需要临时展开」的文件夹路径收集到
+  /// [forceExpanded]（out 参数）。
+  ///
+  /// 以前这里靠 `copyWith(isExpanded: true)` 就地改模型来强制展开，正是造成
+  /// 双数据源的元凶之一；现在模型只描述磁盘结构，展开与否一律外挂。
+  DocumentItem _filterTree(
+    DocumentItem node,
+    String query,
+    Set<String> forceExpanded,
+  ) {
     if (query.isEmpty) return node;
     if (node.isDocument && node.name.toLowerCase().contains(query.toLowerCase())) {
       return node;
     }
     final filteredChildren = node.children
-        .map((child) => _filterTree(child, query))
+        .map((child) => _filterTree(child, query, forceExpanded))
         .where((child) {
           if (child.isDocument) return child.name.toLowerCase().contains(query.toLowerCase());
           return child.children.isNotEmpty;
         })
         .toList();
     if (node.isFolder && filteredChildren.isNotEmpty) {
-      return node.copyWith(children: filteredChildren, isExpanded: true);
+      forceExpanded.add(node.path);
+      return node.copyWith(children: filteredChildren);
     }
     return node;
   }
@@ -360,14 +376,29 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     if (node.isDocument) {
       return _buildDocumentTile(node, depth);
     }
-    final isExpanded =
-        _expandedFolderPaths.contains(node.path) || node.isExpanded;
+    // 展开状态的唯一权威在 store；搜索命中的临时展开单独叠加
+    final isExpanded = context.watch<WorkspaceStore>().isPathExpanded(node.path) ||
+        _searchForceExpanded.contains(node.path);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         _buildFolderTile(node, depth, isExpanded),
-        if (isExpanded)
-          ...node.children.map((child) => _buildTreeNode(child, depth + 1)),
+        // 展开/折叠时子树高度补间，避免整块内容瞬间弹出
+        AnimatedSize(
+          duration: CommonConstants.hoverAnimation,
+          curve: Curves.easeOut,
+          alignment: Alignment.topLeft,
+          child: isExpanded
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: node.children
+                      .map((child) => _buildTreeNode(child, depth + 1))
+                      .toList(),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
       ],
     );
   }
@@ -412,68 +443,79 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
 
   Widget _buildFolderTileContent(DocumentItem node, int depth, bool isExpanded,
       ThemeData theme, {bool isDropTarget = false}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        splashColor: theme.colorScheme.primary.withValues(alpha: 0.08),
-        highlightColor: theme.colorScheme.primary.withValues(alpha: 0.05),
-        onTap: () {
-          setState(() {
-            if (_expandedFolderPaths.contains(node.path)) {
-              _expandedFolderPaths.remove(node.path);
-            } else {
-              _expandedFolderPaths.add(node.path);
-            }
-          });
-          context.read<WorkspaceStore>().toggleExpand(node.path);
-        },
-        onSecondaryTapDown: (details) =>
-            _showFolderMenu(node, details.globalPosition),
-        child: Container(
-          height: 26,
-          padding: EdgeInsets.only(left: 8 + depth * 14),
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(
-            color: isDropTarget
-                ? theme.colorScheme.primary.withValues(alpha: 0.15)
-                : Colors.transparent,
-            border: isDropTarget
-                ? Border.all(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.5),
-                    width: 1,
-                  )
-                : null,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                isExpanded ? Icons.keyboard_arrow_down : Icons.chevron_right,
-                size: 14,
-                color: Color(CommonConstants.textSecondaryColorValue),
+    return HoverBuilder(
+      builder: (context, isHovered) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // 展开状态现在只有一个写入口
+          onTap: () => context.read<WorkspaceStore>().toggleExpanded(node.path),
+          onSecondaryTapDown: (details) =>
+              _showFolderMenu(node, details.globalPosition),
+          child: AnimatedContainer(
+            duration: CommonConstants.hoverAnimation,
+            curve: Curves.easeOut,
+            height: CommonConstants.treeRowHeight,
+            padding: EdgeInsets.only(
+              left: 8 + depth * CommonConstants.treeIndentWidth,
+              right: 4,
+            ),
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(
+              // 拖放高亮优先于悬停高亮：它跟手势逻辑绑定，不能被样式吃掉
+              color: isDropTarget
+                  ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                  : isHovered
+                      ? CommonConstants.primaryOverlay(
+                          CommonConstants.rowHoverAlpha,
+                        )
+                      : Colors.transparent,
+              border: isDropTarget
+                  ? Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                      width: 1,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(
+                CommonConstants.treeRowRadius,
               ),
-              const SizedBox(width: 2),
-              Icon(
-                isExpanded ? Icons.folder_open : Icons.folder,
-                size: 14,
-                color: isExpanded
-                    ? theme.colorScheme.primary
-                    : Color(CommonConstants.textSecondaryColorValue),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  node.name,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
+            ),
+            child: Row(
+              children: [
+                // 折叠 0° / 展开 90°，替代两个图标硬切
+                AnimatedRotation(
+                  turns: isExpanded ? 0.25 : 0,
+                  duration: CommonConstants.hoverAnimation,
+                  curve: Curves.easeOut,
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 14,
+                    color: Color(CommonConstants.textSecondaryColorValue),
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+                const SizedBox(width: 2),
+                Icon(
+                  isExpanded ? Icons.folder_open : Icons.folder,
+                  size: 14,
+                  color: isExpanded || isHovered
+                      ? theme.colorScheme.primary
+                      : Color(CommonConstants.textSecondaryColorValue),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    node.name,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -495,48 +537,61 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
 
   Widget _buildDocumentTileContent(DocumentItem node, int depth, bool isOpen,
       bool isHighlighted, ThemeData theme) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        splashColor: theme.colorScheme.primary.withValues(alpha: 0.08),
-        highlightColor: theme.colorScheme.primary.withValues(alpha: 0.05),
-        onTap: () => _openDocument(node),
-        onSecondaryTapDown: (details) =>
-            _showDocumentMenu(node, details.globalPosition),
-        child: Container(
-          height: 26,
-          padding: EdgeInsets.only(left: 8 + depth * 14 + 18),
-          alignment: Alignment.centerLeft,
-          decoration: BoxDecoration(
-            color: isHighlighted
-                ? theme.colorScheme.primary.withValues(alpha: 0.15)
-                : Colors.transparent,
-            border: isHighlighted
-                ? Border.all(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                    width: 1,
-                  )
-                : null,
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            children: [
-              _buildFileIcon(node.documentType),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  node.name,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isOpen ? theme.colorScheme.primary : null,
-                    fontWeight: isHighlighted ? FontWeight.w600 : null,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return HoverBuilder(
+      builder: (context, isHovered) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _openDocument(node),
+          onSecondaryTapDown: (details) =>
+              _showDocumentMenu(node, details.globalPosition),
+          child: AnimatedContainer(
+            duration: CommonConstants.hoverAnimation,
+            curve: Curves.easeOut,
+            height: CommonConstants.treeRowHeight,
+            padding: EdgeInsets.only(
+              left: 8 + depth * CommonConstants.treeIndentWidth + 18,
+              right: 4,
+            ),
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            alignment: Alignment.centerLeft,
+            decoration: BoxDecoration(
+              // 定位高亮（3 秒）优先于悬停
+              color: isHighlighted
+                  ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                  : isHovered
+                      ? CommonConstants.primaryOverlay(
+                          CommonConstants.rowHoverAlpha,
+                        )
+                      : Colors.transparent,
+              border: isHighlighted
+                  ? Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                      width: 1,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(
+                CommonConstants.treeRowRadius,
               ),
-            ],
+            ),
+            child: Row(
+              children: [
+                _buildFileIcon(node.documentType),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    node.name,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: isOpen ? theme.colorScheme.primary : null,
+                      fontWeight: isHighlighted ? FontWeight.w600 : null,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -624,7 +679,7 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
 
   Widget _buildFileIcon(DocumentType? type) {
     final color = type == DocumentType.log
-        ? Colors.orange
+        ? Color(CommonConstants.logColorValue)
         : Theme.of(context).colorScheme.primary;
     return Container(
       width: 16,
@@ -741,30 +796,9 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           ),
         ),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: OutlinedButton.styleFrom(
-              foregroundColor:
-                  Color(CommonConstants.textPrimaryColorValue),
-              side: BorderSide(
-                  color: Color(CommonConstants.borderColorValue)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor:
-                  Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () => _confirmCreate(controller, onSubmit, ctx),
-            child: const Text('确定'),
+          DialogActions(
+            confirmLabel: '确定',
+            onConfirm: () => _confirmCreate(controller, onSubmit, ctx),
           ),
         ],
       ),
@@ -783,99 +817,85 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
     }
   }
 
-  /// 根据指针全局坐标计算右键菜单位置（跟随光标）。
-  RelativeRect _menuPosition(Offset globalPosition) {
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    return RelativeRect.fromRect(
-      Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
-      Offset.zero & overlay.size,
+  void _showFolderMenu(DocumentItem node, Offset globalPosition) {
+    final store = context.read<WorkspaceStore>();
+    showEditorContextMenu(
+      context: context,
+      anchor: globalPosition,
+      entries: [
+        EditorMenuEntry(
+          label: '在资源管理器中打开',
+          icon: Icons.folder_open,
+          onTap: () => _openInExplorer(node.path),
+        ),
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          label: '重命名',
+          icon: Icons.edit,
+          onTap: () => _showRenameDialog(node, store),
+        ),
+        EditorMenuEntry(
+          label: '删除',
+          icon: Icons.delete_outline,
+          color: Color(CommonConstants.destructiveColorValue),
+          onTap: () => _showDeleteConfirm(node, store),
+        ),
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          label: '新建子文件夹',
+          icon: Icons.create_new_folder,
+          color: Color(CommonConstants.primaryColorValue),
+          onTap: () => _showCreateDialog(
+            title: '新建子文件夹',
+            hintText: '文件夹名称',
+            onSubmit: (name) => store.createFolder(node.path, name),
+          ),
+        ),
+        EditorMenuEntry(
+          label: '新建文档',
+          icon: Icons.insert_drive_file,
+          color: Color(CommonConstants.primaryColorValue),
+          onTap: () => _showCreateDialog(
+            title: '新建文档',
+            hintText: '文件名称',
+            onSubmit: (name) => _createDocumentAndOpen(node.path, name),
+          ),
+        ),
+      ],
     );
   }
 
-  void _showFolderMenu(DocumentItem node, Offset globalPosition) {
-    showMenu<String>(
-      context: context,
-      position: _menuPosition(globalPosition),
-      color: Color(CommonConstants.surfaceColorValue),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
-        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
-      ),
-      items: [
-        _buildMenuItem('在资源管理器中打开', Icons.folder_open, 'explorer'),
-        const PopupMenuDivider(height: 8),
-        _buildMenuItem('重命名', Icons.edit, 'rename'),
-        _buildMenuItem(
-          '删除', Icons.delete_outline, 'delete',
-          iconColor: const Color(0xFFDC2626),
-        ),
-        const PopupMenuDivider(height: 8),
-        _buildMenuItem(
-          '新建子文件夹', Icons.create_new_folder, 'new_sub_folder',
-          iconColor: Color(CommonConstants.primaryColorValue),
-        ),
-        _buildMenuItem(
-          '新建文档', Icons.insert_drive_file, 'new_doc',
-          iconColor: Color(CommonConstants.primaryColorValue),
-        ),
-      ],
-    ).then((value) {
-      if (value == null || !mounted) return;
-      final store = context.read<WorkspaceStore>();
-      if (value == 'explorer') {
-        _openInExplorer(node.path);
-      } else if (value == 'rename') {
-        _showRenameDialog(node, store);
-      } else if (value == 'delete') {
-        _showDeleteConfirm(node, store);
-      } else if (value == 'new_sub_folder') {
-        _showCreateDialog(
-          title: '新建子文件夹',
-          hintText: '文件夹名称',
-          onSubmit: (name) => store.createFolder(node.path, name),
-        );
-      } else if (value == 'new_doc') {
-        _showCreateDialog(
-          title: '新建文档',
-          hintText: '文件名称',
-          onSubmit: (name) => _createDocumentAndOpen(node.path, name),
-        );
-      }
-    });
-  }
-
   void _showDocumentMenu(DocumentItem node, Offset globalPosition) {
-    showMenu<String>(
+    final store = context.read<WorkspaceStore>();
+    showEditorContextMenu(
       context: context,
-      position: _menuPosition(globalPosition),
-      color: Color(CommonConstants.surfaceColorValue),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(CommonConstants.menuBorderRadius),
-        side: BorderSide(color: Color(CommonConstants.borderColorValue)),
-      ),
-      items: [
-        _buildMenuItem('打开', Icons.open_in_new, 'open'),
-        _buildMenuItem('在资源管理器中打开', Icons.folder_open, 'explorer'),
-        const PopupMenuDivider(height: 8),
-        _buildMenuItem('重命名', Icons.edit, 'rename'),
-        _buildMenuItem(
-          '删除', Icons.delete_outline, 'delete',
-          iconColor: const Color(0xFFDC2626),
+      anchor: globalPosition,
+      entries: [
+        EditorMenuEntry(
+          label: '打开',
+          icon: Icons.open_in_new,
+          color: Color(CommonConstants.primaryColorValue),
+          onTap: () => _openDocument(node),
+        ),
+        EditorMenuEntry(
+          label: '在资源管理器中打开',
+          icon: Icons.folder_open,
+          onTap: () => _openInExplorer(node.path),
+        ),
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          label: '重命名',
+          icon: Icons.edit,
+          onTap: () => _showRenameDialog(node, store),
+        ),
+        EditorMenuEntry(
+          label: '删除',
+          icon: Icons.delete_outline,
+          color: Color(CommonConstants.destructiveColorValue),
+          onTap: () => _showDeleteConfirm(node, store),
         ),
       ],
-    ).then((value) {
-      if (value == null || !mounted) return;
-      final store = context.read<WorkspaceStore>();
-      if (value == 'open') {
-        _openDocument(node);
-      } else if (value == 'explorer') {
-        _openInExplorer(node.path);
-      } else if (value == 'rename') {
-        _showRenameDialog(node, store);
-      } else if (value == 'delete') {
-        _showDeleteConfirm(node, store);
-      }
-    });
+    );
   }
 
   void _openInExplorer(String path) {
@@ -960,36 +980,15 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
           ),
         ),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: OutlinedButton.styleFrom(
-              foregroundColor:
-                  Color(CommonConstants.textPrimaryColorValue),
-              side: BorderSide(
-                  color: Color(CommonConstants.borderColorValue)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor:
-                  Theme.of(context).colorScheme.primary,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () => _confirmRename(
+          DialogActions(
+            confirmLabel: '确定',
+            onConfirm: () => _confirmRename(
               controller,
               node,
               store,
               ctx,
               forcedExtension: forcedExtension,
             ),
-            child: const Text('确定'),
           ),
         ],
       ),
@@ -1069,11 +1068,11 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
       context: context,
       builder: (ctx) {
         final focusNode = FocusNode();
-        return RawKeyboardListener(
+        return KeyboardListener(
           focusNode: focusNode,
           autofocus: true,
-          onKey: (event) {
-            if (event is RawKeyDownEvent &&
+          onKeyEvent: (event) {
+            if (event is KeyDownEvent &&
                 event.logicalKey == LogicalKeyboardKey.enter) {
               store.deleteItem(node.path);
               Navigator.pop(ctx);
@@ -1095,32 +1094,13 @@ class _WorkspaceTreeState extends State<WorkspaceTree> {
               ),
             ),
             actions: [
-              OutlinedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor:
-                      Color(CommonConstants.textPrimaryColorValue),
-                  side: BorderSide(
-                      color: Color(CommonConstants.borderColorValue)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                onPressed: () {
+              DialogActions(
+                confirmLabel: '删除',
+                isDestructive: true,
+                onConfirm: () {
                   store.deleteItem(node.path);
                   Navigator.pop(ctx);
                 },
-                child: const Text('删除'),
               ),
             ],
           ),

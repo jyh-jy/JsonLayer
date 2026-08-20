@@ -12,7 +12,13 @@ import 'package:json_layer/contants/CommonConstant.dart';
 /// - **激活**（[active]）：常驻淡底与染色，用于「搜索栏已打开」这类开关态；
 /// - **成功**（[succeeded]）：图标短暂切换为对勾，给格式化/压缩/复制一个完成回执。
 class EditorActionButton extends StatefulWidget {
-  final IconData icon;
+  /// 图标。与 [child] 二选一。
+  final IconData? icon;
+
+  /// 用自定义内容替代图标（如 [Image.asset] 的外链 logo）。
+  /// 此时仍保留悬停淡底与缩放，但不做染色，也没有对勾回执。
+  final Widget? child;
+
   final String tooltip;
   final VoidCallback onTap;
 
@@ -27,13 +33,17 @@ class EditorActionButton extends StatefulWidget {
 
   const EditorActionButton({
     super.key,
-    required this.icon,
+    this.icon,
+    this.child,
     required this.tooltip,
     required this.onTap,
     required this.color,
     this.active = false,
     this.succeeded = false,
-  });
+  }) : assert(
+         icon != null || child != null,
+         'EditorActionButton 需要 icon 或 child 其中之一',
+       );
 
   @override
   State<EditorActionButton> createState() => _EditorActionButtonState();
@@ -112,6 +122,10 @@ class _EditorActionButtonState extends State<EditorActionButton> {
   }
 
   Widget _buildIcon() {
+    // 自定义内容（图片等）无法染色，只享受淡底与缩放
+    final child = widget.child;
+    if (child != null) return child;
+
     // 颜色用 TweenAnimationBuilder 补间（Icon 自身不会动画化 color）；
     // 图标形状的切换（原图标 ↔ 对勾）交给 AnimatedSwitcher。
     return TweenAnimationBuilder<Color?>(
@@ -129,7 +143,7 @@ class _EditorActionButtonState extends State<EditorActionButton> {
             child: FadeTransition(opacity: animation, child: child),
           ),
           child: Icon(
-            widget.succeeded ? Icons.check_rounded : widget.icon,
+            widget.succeeded ? Icons.check_rounded : widget.icon!,
             key: ValueKey<bool>(widget.succeeded),
             size: CommonConstants.buttonIconSize,
             color: color,

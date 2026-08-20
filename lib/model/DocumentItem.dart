@@ -33,6 +33,10 @@ enum DocumentItemType {
 }
 
 /// 工作空间条目模型（文件树节点）。
+///
+/// 注意：这里**不持有展开状态**。展开与否属于「用户视图偏好」而非「磁盘事实」，
+/// 由 `WorkspaceStore` 统一持有并持久化。曾经在这里放过一个 `isExpanded`，
+/// 与 WorkspaceTree 的局部集合形成双数据源，两者永远反相导致文件夹收不起来。
 class DocumentItem {
   final String id;
   final String name;
@@ -40,7 +44,6 @@ class DocumentItem {
   final DocumentItemType itemType;
   final DocumentType? documentType; // 仅 document 类型有值
   final List<DocumentItem> children;
-  final bool isExpanded;
 
   const DocumentItem({
     required this.id,
@@ -49,13 +52,11 @@ class DocumentItem {
     required this.itemType,
     this.documentType,
     this.children = const [],
-    this.isExpanded = false,
   });
 
   DocumentItem copyWith({
     String? name,
     List<DocumentItem>? children,
-    bool? isExpanded,
   }) {
     return DocumentItem(
       id: id,
@@ -64,7 +65,6 @@ class DocumentItem {
       itemType: itemType,
       documentType: documentType,
       children: children ?? this.children,
-      isExpanded: isExpanded ?? this.isExpanded,
     );
   }
 

@@ -9,9 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'package:json_layer/components/common/DialogActions.dart';
+import 'package:json_layer/components/common/EditorActionButton.dart';
+import 'package:json_layer/components/common/HoverBuilder.dart';
+import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/home/WorkspaceTree.dart';
 import 'package:json_layer/components/home/DocumentTabs.dart';
-import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/home/RequestResponsePanel.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
 import 'package:json_layer/stores/TabStore.dart';
@@ -111,7 +114,8 @@ class _HomePageState extends State<HomePage> {
         final bar = Container(
           height: CommonConstants.toolbarHeight,
           color: hasBg
-              ? Color(CommonConstants.surfaceColorValue).withValues(alpha: 0.65)
+              ? Color(CommonConstants.surfaceColorValue)
+                  .withValues(alpha: CommonConstants.glassToolbarAlpha)
               : Color(CommonConstants.surfaceColorValue),
           child: Row(
             children: [
@@ -158,10 +162,14 @@ class _HomePageState extends State<HomePage> {
           ),
         );
         if (!hasBg) return bar;
-        // 有背景图（内置或自定义）：给顶栏叠加毛玻璃，文字清晰且背景图能透出
+        // 有背景图（内置或自定义）：给顶栏叠加毛玻璃，文字清晰且背景图能透出。
+        // bar 必须保持半透明，否则模糊层被完全遮住。
         return ClipRect(
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            filter: ImageFilter.blur(
+              sigmaX: CommonConstants.glassBlurSigma,
+              sigmaY: CommonConstants.glassBlurSigma,
+            ),
             child: bar,
           ),
         );
@@ -176,7 +184,8 @@ class _HomePageState extends State<HomePage> {
         final panel = Container(
           width: CommonConstants.leftNavWidth,
           color: hasBg
-              ? Color(CommonConstants.sidebarColorValue).withValues(alpha: 0.55)
+              ? Color(CommonConstants.sidebarColorValue)
+                  .withValues(alpha: CommonConstants.glassSidebarAlpha)
               : Color(CommonConstants.sidebarColorValue),
           child: Column(
             children: [
@@ -189,7 +198,10 @@ class _HomePageState extends State<HomePage> {
         // 有背景图：左侧栏叠加毛玻璃
         return ClipRect(
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            filter: ImageFilter.blur(
+              sigmaX: CommonConstants.glassBlurSigma,
+              sigmaY: CommonConstants.glassBlurSigma,
+            ),
             child: panel,
           ),
         );
@@ -206,34 +218,50 @@ class _HomePageState extends State<HomePage> {
           top: BorderSide(color: Color(CommonConstants.borderColorValue)),
         ),
       ),
-      child: Tooltip(
-        message: '设置',
-        child: InkWell(
-          borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
-          onTap: _showSettingsDialog,
-          splashColor: CommonConstants.primaryOverlay(0.08),
-          highlightColor: CommonConstants.primaryOverlay(0.05),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.settings_outlined,
-                  size: CommonConstants.buttonIconSize,
-                  color: Color(CommonConstants.textSecondaryColorValue),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '设置',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(CommonConstants.textSecondaryColorValue),
+      child: HoverBuilder(
+        builder: (context, isHovered) {
+          // 整行都是热区，悬停时图标与文字一起染成主色
+          final foreground = isHovered
+              ? Color(CommonConstants.primaryColorValue)
+              : Color(CommonConstants.textSecondaryColorValue);
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _showSettingsDialog,
+            child: AnimatedContainer(
+              duration: CommonConstants.hoverAnimation,
+              curve: Curves.easeOut,
+              color: isHovered
+                  ? CommonConstants.primaryOverlay(
+                      CommonConstants.rowHoverAlpha,
+                    )
+                  : Colors.transparent,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  AnimatedRotation(
+                    // 齿轮转一点点，是这个按钮最自然的悬停语言
+                    turns: isHovered ? 0.125 : 0,
+                    duration: CommonConstants.hoverAnimation,
+                    curve: Curves.easeOut,
+                    child: Icon(
+                      Icons.settings_outlined,
+                      size: CommonConstants.buttonIconSize,
+                      color: foreground,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    '设置',
+                    style: TextStyle(
+                      fontSize: CommonConstants.menuFontSize,
+                      color: foreground,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -604,7 +632,7 @@ class _HomePageState extends State<HomePage> {
                                                     fit: BoxFit.cover,
                                                     width: double.infinity,
                                                     errorBuilder:
-                                                        (_, __, ___) =>
+                                                        (_, _, _) =>
                                                             Container(
                                                       alignment:
                                                           Alignment.center,
@@ -715,29 +743,9 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               actions: [
-                OutlinedButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Color(
-                      CommonConstants.textPrimaryColorValue,
-                    ),
-                    side: BorderSide(
-                        color: Color(CommonConstants.borderColorValue)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text('取消'),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(ctx).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  onPressed: () async {
+                DialogActions(
+                  confirmLabel: '保存',
+                  onConfirm: () async {
                     // ---- 应用皮肤 ----
                     switch (pendingSkinMode) {
                       case SkinMode.light:
@@ -816,7 +824,6 @@ class _HomePageState extends State<HomePage> {
                       }
                     }
                   },
-                  child: const Text('保存'),
                 ),
               ],
             ),
@@ -1051,42 +1058,31 @@ class _ExternalLinks extends StatelessWidget {
     }
   }
 
+  static const double _logoSize = 16;
+
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // DP 图标
-        Tooltip(
-          message: 'DP 官网',
-          child: InkWell(
-            borderRadius: BorderRadius.circular(4),
-            onTap: () => _openUrl('https://www.deepseek.com'),
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Image.asset(
-                'images/deepseek.webp',
-                width: 16,
-                height: 16,
-              ),
-            ),
+        EditorActionButton(
+          tooltip: 'DP 官网',
+          color: Color(CommonConstants.actionPromptColorValue),
+          onTap: () => _openUrl('https://www.deepseek.com'),
+          child: Image.asset(
+            'images/deepseek.webp',
+            width: _logoSize,
+            height: _logoSize,
           ),
         ),
-        const SizedBox(width: 2),
-        // GitHub 图标
-        Tooltip(
-          message: 'GitHub 仓库',
-          child: InkWell(
-            borderRadius: BorderRadius.circular(4),
-            onTap: () => _openUrl('https://github.com/jyh-jy/JsonLayer'),
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Image.asset(
-                'images/github.webp',
-                width: 16,
-                height: 16,
-              ),
-            ),
+        EditorActionButton(
+          tooltip: 'GitHub 仓库',
+          color: Color(CommonConstants.textPrimaryColorValue),
+          onTap: () => _openUrl('https://github.com/jyh-jy/JsonLayer'),
+          child: Image.asset(
+            'images/github.webp',
+            width: _logoSize,
+            height: _logoSize,
           ),
         ),
         const SizedBox(width: 4),

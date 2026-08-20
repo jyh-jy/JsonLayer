@@ -3,7 +3,7 @@
 > 一个基于 **Flutter** 打造的轻量级桌面端 JSON 工作空间编辑器 · 双击即用 · 双模式编辑 · 可换肤
 
 <p align="center">
-  <img src="https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/JsonLayer.png" width="140" alt="JsonLayer Logo" />
+  <img src="images/JsonLayer.png" width="140" alt="JsonLayer Logo" />
 </p>
 
 <p align="center">
