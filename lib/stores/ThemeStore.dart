@@ -22,7 +22,7 @@ enum SkinMode {
 /// 浅色主题，不引入三方配色依赖，保证版本兼容性。
 class ThemeStore extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.light;
-  SkinMode _skinMode = SkinMode.light;
+  SkinMode _skinMode = SkinMode.builtInBg;
 
   /// 用户上传的自定义背景图（应用支持目录下的绝对路径）。
   /// 仅 [SkinMode.customBg] 时才会使用；其他模式即使存在也不展示。
@@ -57,9 +57,9 @@ class ThemeStore extends ChangeNotifier {
   /// 启动时从 SharedPreferences 恢复用户选择
   Future<void> loadFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    final skinIndex = prefs.getInt('skin_mode') ?? SkinMode.light.index;
+    final skinIndex = prefs.getInt('skin_mode') ?? SkinMode.builtInBg.index;
     final savedMode =
-        SkinMode.values.elementAtOrNull(skinIndex) ?? SkinMode.light;
+        SkinMode.values.elementAtOrNull(skinIndex) ?? SkinMode.builtInBg;
 
     // 兼容升级：旧版把内置 bgPic 模式存为 customBg（index=1）
     // 新定义 builtInBg=1 刚好对应，无需迁移；customBg 现在是 index=2

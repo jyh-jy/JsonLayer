@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -251,6 +252,13 @@ class _HomePageState extends State<HomePage> {
     // 则使用 store 中已存在的用户图（若 store 也没有则提示用户先选一张）
     String? pendingCustomBgFile = themeStore.customBackgroundPath;
 
+    // 提示词框框预设内容：从 SharedPreferences 读取
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    // 提示词当前值由 _PromptField 通过 onChanged 回写，避免在对话框退出
+    // 动画期间持有/销毁 TextEditingController（会导致"used after dispose"崩溃）。
+    String pendingPrompt = prefs.getString(CommonConstants.presetPromptKey) ?? '';
+
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -321,7 +329,8 @@ class _HomePageState extends State<HomePage> {
                       child: TabBarView(
                         children: [
                           // ============ Tab 1: 工作空间 ============
-                          Column(
+                          SingleChildScrollView(
+                            child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
@@ -425,7 +434,36 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                         ),
                               ),
+                              const SizedBox(height: 20),
+                              // ----- 提示词框框 -----
+                              Text(
+                                '提示词',
+                                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                                      color: Color(
+                                        CommonConstants
+                                            .textSecondaryColorValue,
+                                      ),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              _PromptField(
+                                initialValue: pendingPrompt,
+                                onChanged: (v) => pendingPrompt = v,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '配合 JSON 模式工具栏的"生成提示词"按钮 + 顶栏 DeepSeek 入口，可一键复制并打开官网提问。',
+                                style:
+                                    Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                                          color: Color(
+                                            CommonConstants
+                                                .textSecondaryColorValue,
+                                          ),
+                                        ),
+                              ),
                             ],
+                            ),
                           ),
                           // ============ Tab 2: 外观 ============
                           SingleChildScrollView(
@@ -741,7 +779,13 @@ class _HomePageState extends State<HomePage> {
                         }
                         break;
                     }
-                    Navigator.pop(ctx);
+                    if (ctx.mounted) Navigator.pop(ctx);
+
+                    // ---- 保存提示词 ----
+                    await prefs.setString(
+                      CommonConstants.presetPromptKey,
+                      pendingPrompt.trim(),
+                    );
 
                     // ---- 应用工作空间 ----
                     if (pendingWorkspacePath !=
@@ -919,6 +963,79 @@ class _HomePageState extends State<HomePage> {
           ],
         );
       },
+    );
+  }
+}
+
+/// 设置对话框里的提示词输入框。
+///
+/// 自己持有 [TextEditingController] 并在自身 dispose 时释放，避免控制器被
+/// 对话框外部的状态（`_showSettingsDialog`）提前 dispose，导致对话框退出动画
+/// 期间重建 `TextField` 时触发 "TextEditingController was used after being
+/// disposed" 崩溃。
+class _PromptField extends StatefulWidget {
+  final String initialValue;
+  final ValueChanged<String> onChanged;
+
+  const _PromptField({
+    required this.initialValue,
+    required this.onChanged,
+  });
+
+  @override
+  State<_PromptField> createState() => _PromptFieldState();
+}
+
+class _PromptFieldState extends State<_PromptField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ctx = context;
+    return TextField(
+      controller: _controller,
+      maxLines: 5,
+      onChanged: widget.onChanged,
+      decoration: InputDecoration(
+        hintText: '可留空。设置后，点击 JSON 模式工具栏的"生成提示词"按钮，会自动将此处提示词 + JSON 内容一起复制到剪贴板',
+        isDense: true,
+        alignLabelWithHint: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(
+            color: Color(CommonConstants.borderColorValue),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(
+            color: Color(CommonConstants.borderColorValue),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(
+            color: Theme.of(ctx).colorScheme.primary,
+            width: 1.5,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -13,6 +13,9 @@ class CommonConstants {
   /// 本地存储 key
   static const String workspacePathKey = 'workspace_path';
 
+  /// 提示词框框预设内容存储 key
+  static const String presetPromptKey = 'preset_prompt';
+
   /// JSON 默认缩进空格数
   static const int defaultIndentSpaces = 2;
 

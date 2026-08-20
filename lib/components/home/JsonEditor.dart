@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/json.dart' as json_highlight;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:json_layer/components/common/SearchBar.dart'
     show SearchQueryBar;
@@ -404,6 +405,12 @@ class _JsonEditorState extends State<JsonEditor> {
           const Spacer(),
           _buildActionButton(
             theme,
+            icon: Icons.auto_awesome,
+            tooltip: '生成提示词',
+            onTap: _generatePrompt,
+          ),
+          _buildActionButton(
+            theme,
             icon: Icons.search,
             tooltip: '搜索 (Ctrl+F)',
             onTap: () => _showSearchBar ? _closeSearch() : _openSearch(),
@@ -645,6 +652,42 @@ class _JsonEditorState extends State<JsonEditor> {
         backgroundColor: Theme.of(context).colorScheme.error,
       );
     }
+  }
+
+  /// 生成提示词：将用户预设的提示词 + 当前 JSON 内容一起复制到剪贴板。
+  ///
+  /// 配合顶栏右侧的 DeepSeek 入口使用：点此按钮复制 → 点 DeepSeek 打开官网 →
+  /// 在 DP 输入框中粘贴，即可直接询问 AI。
+  Future<void> _generatePrompt() async {
+    final jsonContent = _controller.text.trim();
+    if (jsonContent.isEmpty) {
+      SafeSnackBar.show(
+        context,
+        message: 'JSON 内容为空，无法生成提示词',
+        idempotencyKey: 'prompt_empty',
+        backgroundColor: Theme.of(context).colorScheme.error,
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final presetPrompt =
+        prefs.getString(CommonConstants.presetPromptKey)?.trim() ?? '';
+
+    // 预设提示词非空时：提示词 + 换行 + JSON 内容；否则只复制 JSON 内容
+    final combined = presetPrompt.isEmpty
+        ? jsonContent
+        : '$presetPrompt\n\n$jsonContent';
+
+    await Clipboard.setData(ClipboardData(text: combined));
+    if (!mounted) return;
+    SafeSnackBar.show(
+      context,
+      message: presetPrompt.isEmpty
+          ? '已复制 JSON 内容到剪贴板（未设置提示词）'
+          : '已复制提示词 + JSON 内容到剪贴板，点击右上角 DeepSeek 即可粘贴提问',
+      idempotencyKey: 'prompt_copied',
+    );
   }
 
   static const Set<String> _separators = {

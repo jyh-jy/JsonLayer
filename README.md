@@ -3,7 +3,7 @@
 > 一个基于 **Flutter** 打造的轻量级桌面端 JSON 工作空间编辑器 · 双击即用 · 双模式编辑 · 可换肤
 
 <p align="center">
-  <img src="images/JsonLayer.png" width="140" alt="JsonLayer Logo" />
+  <img src="https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/JsonLayer.png" width="140" alt="JsonLayer Logo" />
 </p>
 
 <p align="center">
@@ -38,16 +38,11 @@
 ## 🖼 截图
  
 - 工作空间 + 对象树模式（自定义背景）
-<img width="1264" height="791" alt="image" src="https://github.com/user-attachments/assets/61e08ed2-bf60-45d5-93eb-d58c88612eaa" />
+  https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E9%A6%96%E9%A1%B5.png
 - JSON 源码模式 + 搜索高亮
-
-
-
-
-
-
-- 皮肤设置弹窗
-  
+  https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E4%BB%8B%E7%BB%8D.png
+- 对象模式
+  https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E4%BB%8B%E7%BB%8D2.png
 
 ## ⚡ 快速开始
 
