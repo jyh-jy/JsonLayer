@@ -39,12 +39,18 @@
 | macOS / Linux | 🔧 未测试 | 代码无平台强绑定，可自行编译验证 |
 
 ## 🖼 截图
-
-> 👇 可替换为你自己的项目截图
-
+ 
 - 工作空间 + 对象树模式（自定义背景）
+<img width="1264" height="791" alt="image" src="https://github.com/user-attachments/assets/61e08ed2-bf60-45d5-93eb-d58c88612eaa" />
 - JSON 源码模式 + 搜索高亮
+
+
+
+
+
+
 - 皮肤设置弹窗
+  
 
 ## ⚡ 快速开始
 
