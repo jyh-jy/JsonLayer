@@ -55,9 +55,15 @@
 - **Windows 构建工具**：Visual Studio 2022（带「使用 C++ 的桌面开发」工作负载）
 - Dart 3.0+ 空安全已默认启用
 
+### 提建议可以加群聊
+  <img src="images/group.png" width="140" alt="JsonLayer Group" />
+
+
+
 ### 1. 克隆 & 安装依赖
 
 ```bash
 git clone https://github.com/你的用户名/json_layer.git
 cd json_layer
 flutter pub get
+
