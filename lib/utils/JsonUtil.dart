@@ -50,7 +50,7 @@ class JsonUtil {
   static String _stripBomAndWhitespace(String raw) {
     var text = raw.trim();
     // 去除 UTF-8 BOM
-    if (text.codeUnitAt(0) == 0xFEFF) {
+    if (text.isNotEmpty && text.codeUnitAt(0) == 0xFEFF) {
       text = text.substring(1);
     }
     return text.trim();
