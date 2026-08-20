@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:json_layer/components/common/EditorActionButton.dart';
+import 'package:json_layer/components/common/EditorContextMenu.dart';
 import 'package:json_layer/components/common/SearchBar.dart'
     show SearchQueryBar;
 import 'package:json_layer/components/common/SearchHighlight.dart';
@@ -225,6 +227,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
               // Text/Text.rich 都支持鼠标拖拽选择和复制，性能远好于每个
               // 节点都用 SelectableText（后者会为每个节点建立独立的选择状态）。
               child: SelectionArea(
+                contextMenuBuilder: _buildContextMenu,
                 onSelectionChanged: (content) {
                   // 实时记录最近在对象模式下选中的文本（用于 Ctrl+F 自动回填）
                   _lastSelectedText = content?.plainText ?? '';
@@ -383,21 +386,20 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             ),
           ],
           const Spacer(),
-          _buildActionButton(
-            theme,
+          EditorActionButton(
             icon: Icons.search,
-            tooltip: '搜索 (Ctrl+F)',
+            tooltip: _showSearchBar ? '关闭搜索 (Esc)' : '搜索 (Ctrl+F)',
+            color: Color(CommonConstants.actionSearchColorValue),
+            active: _showSearchBar,
             onTap: () => _showSearchBar ? _closeSearch() : _openSearch(context),
           ),
-          if (!widget.readOnly) ...[
-            const SizedBox(width: 4),
-            _buildActionButton(
-              theme,
+          if (!widget.readOnly)
+            EditorActionButton(
               icon: Icons.add,
               tooltip: '新增字段',
+              color: Color(CommonConstants.actionAddColorValue),
               onTap: _addField,
             ),
-          ],
         ],
       ),
     );
@@ -431,28 +433,61 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     );
   }
 
-  Widget _buildActionButton(
-    ThemeData theme, {
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
-        splashColor: CommonConstants.primaryOverlay(0.08),
-        highlightColor: CommonConstants.primaryOverlay(0.05),
-        child: Padding(
-          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
-          child: Icon(
-            icon,
-            size: CommonConstants.buttonIconSize,
-            color: Color(CommonConstants.textSecondaryColorValue),
-          ),
+  /// 对象树的右键菜单：与 JSON 模式同款外观，但只保留树上有意义的动作
+  /// （树本身不可直接输入，故无剪切/粘贴）。
+  Widget _buildContextMenu(
+    BuildContext context,
+    SelectableRegionState selectableRegionState,
+  ) {
+    final buttonItems = selectableRegionState.contextMenuButtonItems;
+
+    VoidCallback? systemAction(ContextMenuButtonType type) {
+      for (final item in buttonItems) {
+        if (item.type == type) return item.onPressed;
+      }
+      return null;
+    }
+
+    VoidCallback ownAction(VoidCallback action) {
+      return () {
+        selectableRegionState.hideToolbar();
+        action();
+      };
+    }
+
+    final hasSelection = _lastSelectedText.trim().isNotEmpty;
+
+    return EditorContextMenu(
+      anchor: selectableRegionState.contextMenuAnchors.primaryAnchor,
+      entries: [
+        EditorMenuEntry(
+          label: '复制',
+          icon: Icons.content_copy,
+          shortcut: 'Ctrl+C',
+          onTap: systemAction(ContextMenuButtonType.copy),
         ),
-      ),
+        EditorMenuEntry(
+          label: '全选',
+          icon: Icons.select_all,
+          shortcut: 'Ctrl+A',
+          onTap: systemAction(ContextMenuButtonType.selectAll),
+        ),
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          label: hasSelection ? '搜索选中内容' : '搜索',
+          icon: Icons.search,
+          shortcut: 'Ctrl+F',
+          color: Color(CommonConstants.actionSearchColorValue),
+          onTap: ownAction(() => _openSearch(context)),
+        ),
+        if (!widget.readOnly)
+          EditorMenuEntry(
+            label: '新增字段',
+            icon: Icons.add,
+            color: Color(CommonConstants.actionAddColorValue),
+            onTap: ownAction(_addField),
+          ),
+      ],
     );
   }
 

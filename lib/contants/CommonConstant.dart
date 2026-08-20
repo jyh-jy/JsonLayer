@@ -48,6 +48,35 @@ class CommonConstants {
   static const double buttonPadding = 4.0;
   static const double buttonRadius = 3.0;
 
+  /// 编辑器工具栏按钮语义色（每个动作一个专属色，悬停/激活时才显色）
+  static const int actionPromptColorValue = 0xFF8B5CF6; // 生成提示词：Violet
+  static const int actionSearchColorValue = 0xFF6366F1; // 搜索：Indigo 主色
+  static const int actionFormatColorValue = 0xFF059669; // 格式化：Emerald
+  static const int actionCompressColorValue = 0xFFD97706; // 压缩：Amber
+  static const int actionAddColorValue = 0xFF0EA5E9; // 新增字段：Sky
+
+  /// 工具栏按钮动效
+  static const double actionButtonRadius = 6.0;
+  static const double actionButtonHoverScale = 1.16;
+  static const double actionButtonPressScale = 0.90;
+  static const double actionButtonHoverAlpha = 0.10;
+  static const double actionButtonActiveAlpha = 0.14;
+  static const double actionButtonSuccessAlpha = 0.18;
+  static const Duration hoverAnimation = Duration(milliseconds: 140);
+  static const Duration iconSwapAnimation = Duration(milliseconds: 180);
+
+  /// 动作成功后图标短暂切换为对勾的持续时长
+  static const Duration successFlash = Duration(milliseconds: 900);
+
+  /// 右键菜单
+  static const double contextMenuWidth = 208.0;
+  static const double contextMenuVerticalPadding = 5.0;
+  static const double contextMenuDividerHeight = 9.0;
+  static const double contextMenuScreenMargin = 8.0;
+  static const double contextMenuShortcutFontSize = 11.0;
+  static const Duration contextMenuAnimation = Duration(milliseconds: 120);
+  static const double disabledOpacity = 0.38;
+
   /// 菜单样式常量
   static const double menuItemHeight = 32.0;
   static const double menuItemPadding = 12.0;

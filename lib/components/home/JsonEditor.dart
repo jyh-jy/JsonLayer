@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -7,11 +8,16 @@ import 'package:flutter_code_editor/flutter_code_editor.dart';
 import 'package:highlight/languages/json.dart' as json_highlight;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:json_layer/components/common/EditorActionButton.dart';
+import 'package:json_layer/components/common/EditorContextMenu.dart';
 import 'package:json_layer/components/common/SearchBar.dart'
     show SearchQueryBar;
 import 'package:json_layer/components/common/SafeSnackBar.dart';
 import 'package:json_layer/components/common/SearchHighlight.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
+
+/// 工具栏中会给出「成功回执」的动作。
+enum _ToolbarAction { prompt, format, compress }
 
 /// JSON 文本编辑器组件（基于 flutter_code_editor）。
 ///
@@ -55,6 +61,12 @@ class _JsonEditorState extends State<JsonEditor> {
   int _lastPointerDownTime = 0;
   int _lastPointerDownPointer = -1;
 
+  /// 刚刚执行成功的工具栏动作（见 [_ToolbarAction]），用于让对应按钮的图标
+  /// 短暂变成对勾。格式化/压缩这类「结果在下方文本里」的操作本身没有提示音
+  /// 也没有 toast，靠这个回执让用户确认点到了。
+  _ToolbarAction? _succeededAction;
+  Timer? _successTimer;
+
   // 搜索相关
   bool _showSearchBar = false;
   String _searchQuery = '';
@@ -90,6 +102,7 @@ class _JsonEditorState extends State<JsonEditor> {
 
   @override
   void dispose() {
+    _successTimer?.cancel();
     _controller.removeListener(_onTextChanged);
     _searchUndoController.dispose();
     _verticalScrollController.dispose();
@@ -403,28 +416,34 @@ class _JsonEditorState extends State<JsonEditor> {
             ),
           ),
           const Spacer(),
-          _buildActionButton(
-            theme,
+          EditorActionButton(
             icon: Icons.auto_awesome,
             tooltip: '生成提示词',
+            color: Color(CommonConstants.actionPromptColorValue),
+            succeeded: _succeededAction == _ToolbarAction.prompt,
             onTap: _generatePrompt,
           ),
-          _buildActionButton(
-            theme,
+          const EditorActionDivider(),
+          EditorActionButton(
             icon: Icons.search,
-            tooltip: '搜索 (Ctrl+F)',
+            tooltip: _showSearchBar ? '关闭搜索 (Esc)' : '搜索 (Ctrl+F)',
+            color: Color(CommonConstants.actionSearchColorValue),
+            // 搜索栏展开时按钮常驻高亮，让「当前正在搜索」这一状态可见。
+            active: _showSearchBar,
             onTap: () => _showSearchBar ? _closeSearch() : _openSearch(),
           ),
-          _buildActionButton(
-            theme,
+          EditorActionButton(
             icon: Icons.format_align_left,
             tooltip: '格式化 (Ctrl+L)',
+            color: Color(CommonConstants.actionFormatColorValue),
+            succeeded: _succeededAction == _ToolbarAction.format,
             onTap: _formatJson,
           ),
-          _buildActionButton(
-            theme,
+          EditorActionButton(
             icon: Icons.compress,
             tooltip: '压缩',
+            color: Color(CommonConstants.actionCompressColorValue),
+            succeeded: _succeededAction == _ToolbarAction.compress,
             onTap: _compressJson,
           ),
         ],
@@ -432,28 +451,110 @@ class _JsonEditorState extends State<JsonEditor> {
     );
   }
 
-  Widget _buildActionButton(
-    ThemeData theme, {
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(CommonConstants.buttonRadius),
-        splashColor: CommonConstants.primaryOverlay(0.08),
-        highlightColor: CommonConstants.primaryOverlay(0.05),
-        child: Padding(
-          padding: const EdgeInsets.all(CommonConstants.buttonPadding),
-          child: Icon(
-            icon,
-            size: CommonConstants.buttonIconSize,
-            color: Color(CommonConstants.textSecondaryColorValue),
+  /// 让 [action] 对应的按钮短暂显示对勾回执。重复触发会重置计时。
+  void _flashSuccess(_ToolbarAction action) {
+    _successTimer?.cancel();
+    setState(() => _succeededAction = action);
+    _successTimer = Timer(CommonConstants.successFlash, () {
+      if (!mounted) return;
+      setState(() => _succeededAction = null);
+    });
+  }
+
+  // ---------------- 右键菜单 ----------------
+
+  /// 内容区右键菜单：替换 Flutter 默认的英文系统选择工具条，改成与
+  /// 左侧文件树、标签栏一致的中文菜单，并把编辑器自己的动作（搜索 /
+  /// 格式化 / 压缩 / 生成提示词）一并挂上，省去一次到顶栏的往返。
+  ///
+  /// 剪切/复制/粘贴/全选的可用性与具体行为都复用 Flutter 计算好的
+  /// [EditableTextState.contextMenuButtonItems]（它会考虑当前选区、只读
+  /// 状态与剪贴板内容），我们只负责换一层皮。
+  Widget _buildContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final buttonItems = editableTextState.contextMenuButtonItems;
+
+    VoidCallback? systemAction(ContextMenuButtonType type) {
+      for (final item in buttonItems) {
+        if (item.type == type) return item.onPressed;
+      }
+      return null; // Flutter 未提供该动作 → 条目置灰
+    }
+
+    /// 自定义动作统一先收起菜单再执行，避免菜单挡住结果。
+    VoidCallback ownAction(VoidCallback action) {
+      return () {
+        editableTextState.hideToolbar();
+        action();
+      };
+    }
+
+    final selection = _controller.selection;
+    final hasSelection = selection.isValid && !selection.isCollapsed;
+
+    return EditorContextMenu(
+      anchor: editableTextState.contextMenuAnchors.primaryAnchor,
+      entries: [
+        if (!widget.readOnly)
+          EditorMenuEntry(
+            label: '剪切',
+            icon: Icons.content_cut,
+            shortcut: 'Ctrl+X',
+            onTap: systemAction(ContextMenuButtonType.cut),
           ),
+        EditorMenuEntry(
+          label: '复制',
+          icon: Icons.content_copy,
+          shortcut: 'Ctrl+C',
+          onTap: systemAction(ContextMenuButtonType.copy),
         ),
-      ),
+        if (!widget.readOnly)
+          EditorMenuEntry(
+            label: '粘贴',
+            icon: Icons.content_paste,
+            shortcut: 'Ctrl+V',
+            onTap: systemAction(ContextMenuButtonType.paste),
+          ),
+        EditorMenuEntry(
+          label: '全选',
+          icon: Icons.select_all,
+          shortcut: 'Ctrl+A',
+          onTap: systemAction(ContextMenuButtonType.selectAll),
+        ),
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          // 有选区时 _openSearch 会把选中的文字直接回填进搜索框
+          label: hasSelection ? '搜索选中内容' : '搜索',
+          icon: Icons.search,
+          shortcut: 'Ctrl+F',
+          color: Color(CommonConstants.actionSearchColorValue),
+          onTap: ownAction(_openSearch),
+        ),
+        if (!widget.readOnly) ...[
+          EditorMenuEntry(
+            label: '格式化',
+            icon: Icons.format_align_left,
+            shortcut: 'Ctrl+L',
+            color: Color(CommonConstants.actionFormatColorValue),
+            onTap: ownAction(_formatJson),
+          ),
+          EditorMenuEntry(
+            label: '压缩',
+            icon: Icons.compress,
+            color: Color(CommonConstants.actionCompressColorValue),
+            onTap: ownAction(_compressJson),
+          ),
+        ],
+        const EditorMenuDivider(),
+        EditorMenuEntry(
+          label: '生成提示词',
+          icon: Icons.auto_awesome,
+          color: Color(CommonConstants.actionPromptColorValue),
+          onTap: ownAction(_generatePrompt),
+        ),
+      ],
     );
   }
 
@@ -513,6 +614,7 @@ class _JsonEditorState extends State<JsonEditor> {
                                       ),
                                       autocorrect: false,
                                       enableSuggestions: false,
+                                      contextMenuBuilder: _buildContextMenu,
                                       decoration: const InputDecoration(
                                         isCollapsed: true,
                                         contentPadding: EdgeInsets.symmetric(
@@ -626,6 +728,7 @@ class _JsonEditorState extends State<JsonEditor> {
       final formatted = const JsonEncoder.withIndent('  ').convert(decoded);
       _controller.text = formatted;
       widget.onChanged(formatted);
+      _flashSuccess(_ToolbarAction.format);
     } catch (e) {
       SafeSnackBar.show(
         context,
@@ -644,6 +747,7 @@ class _JsonEditorState extends State<JsonEditor> {
       final compressed = jsonEncode(decoded);
       _controller.text = compressed;
       widget.onChanged(compressed);
+      _flashSuccess(_ToolbarAction.compress);
     } catch (e) {
       SafeSnackBar.show(
         context,
@@ -681,6 +785,7 @@ class _JsonEditorState extends State<JsonEditor> {
 
     await Clipboard.setData(ClipboardData(text: combined));
     if (!mounted) return;
+    _flashSuccess(_ToolbarAction.prompt);
     SafeSnackBar.show(
       context,
       message: presetPrompt.isEmpty
