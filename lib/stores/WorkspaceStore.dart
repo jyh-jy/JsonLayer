@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:json_layer/model/DocumentItem.dart';
@@ -40,12 +41,15 @@ class WorkspaceStore extends ChangeNotifier {
 
   /// 获取某路径的所有父级路径（用于展开文件夹）
   List<String> getParentPaths(String path) {
-    final parts = path.split('\\');
     final result = <String>[];
-    for (var i = 1; i < parts.length; i++) {
-      result.add(parts.sublist(0, i).join('\\'));
+    var parent = p.dirname(path);
+    while (parent != '.' && parent != path) {
+      result.add(parent);
+      final nextParent = p.dirname(parent);
+      if (nextParent == parent) break;
+      parent = nextParent;
     }
-    return result;
+    return result.reversed.toList();
   }
 
   /// 初始化：检查是否已配置工作空间路径

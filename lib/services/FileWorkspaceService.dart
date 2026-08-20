@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:json_layer/model/DocumentItem.dart';
 import 'package:json_layer/services/WorkspaceService.dart';
 
@@ -39,11 +40,11 @@ class FileWorkspaceService implements WorkspaceService {
           final aIsDir = a is Directory;
           final bIsDir = b is Directory;
           if (aIsDir != bIsDir) return aIsDir ? -1 : 1;
-          return a.path.split('\\').last.compareTo(b.path.split('\\').last);
+          return p.basename(a.path).compareTo(p.basename(b.path));
         });
 
       for (final entity in sorted) {
-        final name = entity.path.split('\\').last;
+        final name = p.basename(entity.path);
         // 跳过隐藏文件
         if (name.startsWith('.')) continue;
 
@@ -66,7 +67,7 @@ class FileWorkspaceService implements WorkspaceService {
 
     return DocumentItem(
       id: dir.path,
-      name: dir.path.split('\\').last.isEmpty ? dir.path : dir.path.split('\\').last,
+      name: p.basename(dir.path).isEmpty ? dir.path : p.basename(dir.path),
       path: dir.path,
       itemType: DocumentItemType.folder,
       children: children,
@@ -76,7 +77,7 @@ class FileWorkspaceService implements WorkspaceService {
 
   @override
   Future<DocumentItem> createFolder(String parentPath, String name) async {
-    final folderPath = '$parentPath\\$name';
+    final folderPath = p.join(parentPath, name);
     final dir = Directory(folderPath);
     await dir.create(recursive: true);
     return DocumentItem(
@@ -96,7 +97,7 @@ class FileWorkspaceService implements WorkspaceService {
     DocumentType type,
   ) async {
     final fileName = _uniqueFileName(parentPath, name, type.extension);
-    final docPath = '$parentPath\\$fileName';
+    final docPath = p.join(parentPath, fileName);
     final file = File(docPath);
     await file.create();
     return DocumentItem(
@@ -120,7 +121,7 @@ class FileWorkspaceService implements WorkspaceService {
 
     var candidate = '$base$extension';
     var index = 2;
-    while (File('$parentPath\\$candidate').existsSync()) {
+    while (File(p.join(parentPath, candidate)).existsSync()) {
       candidate = '$base$index$extension';
       index++;
     }
@@ -146,8 +147,8 @@ class FileWorkspaceService implements WorkspaceService {
   Future<void> rename(String path, String newName) async {
     final file = File(path);
     final dir = Directory(path);
-    final parentDir = path.substring(0, path.lastIndexOf('\\'));
-    final newPath = '$parentDir\\$newName';
+    final parentDir = p.dirname(path);
+    final newPath = p.join(parentDir, newName);
     if (await file.exists()) {
       await file.rename(newPath);
     } else if (await dir.exists()) {
@@ -182,9 +183,9 @@ class FileWorkspaceService implements WorkspaceService {
     if (!await sourceFile.exists()) {
       throw Exception('源文件不存在: $sourcePath');
     }
-    final fileName = sourcePath.split('\\').last;
+    final fileName = p.basename(sourcePath);
     final destName = _uniqueFileName(destDirPath, fileName.replaceAll('.json', ''), '.json');
-    final destPath = '$destDirPath\\$destName';
+    final destPath = p.join(destDirPath, destName);
     await sourceFile.copy(destPath);
     return DocumentItem(
       id: destPath,
@@ -203,8 +204,8 @@ class FileWorkspaceService implements WorkspaceService {
   }) async {
     final sourceFile = File(sourcePath);
     final sourceDir = Directory(sourcePath);
-    final name = sourcePath.split('\\').last;
-    final newPath = '$destDirPath\\$name';
+    final name = p.basename(sourcePath);
+    final newPath = p.join(destDirPath, name);
 
     if (await sourceFile.exists()) {
       if (sourcePath == newPath) return;
