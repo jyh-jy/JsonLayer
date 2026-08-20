@@ -1,6 +1,6 @@
 # JsonLayer
 
-> 一个基于 **Flutter** 打造的轻量级桌面端 JSON 工作空间编辑器 · 双击即用 · 双模式编辑 · 可换肤 · 支持扩展注入
+> 一个基于 **Flutter** 打造的轻量级桌面端 JSON 工作空间编辑器 · 双击即用 · 双模式编辑 · 可换肤
 
 <p align="center">
   <img src="images/JsonLayer.png" width="140" alt="JsonLayer Logo" />
@@ -11,7 +11,6 @@
   <a href="#快速开始"><strong>快速开始</strong></a> ·
   <a href="#快捷键"><strong>快捷键</strong></a> ·
   <a href="#项目结构"><strong>结构</strong></a> ·
-  <a href="#扩展注入机制"><strong>扩展注入</strong></a> ·
   <a href="#开源协议"><strong>协议</strong></a>
 </p>
 
@@ -19,24 +18,22 @@
 
 ## ✨ 特性
 
-- 🗂 **工作空间文件树** —— 文件夹 / JSON 文档 / LOG 文档统一管理，支持拖拽内部排序、外部 JSON 文件直接拖入导入、右键菜单（新建 · 重命名 · 删除 · 在资源管理器中打开）
+- 🗂 **工作空间文件树** —— 文件夹 / JSON 文档 / LOG 文档统一管理，支持外部 JSON 文件直接拖入导入、右键菜单（新建 · 重命名 · 删除 · 在资源管理器中打开）
 - 📑 **多标签页编辑** —— 右键「关闭其他 / 关闭所有 / 定位」，标签过多时可用 **鼠标滚轮** 切换，带 3 秒高亮定位动画
 - 🔀 **JSON / 对象树双模式** —— 源码模式提供**格式化 / 压缩**，对象树模式完整展示 `{}` 结构并支持整段文本选择，切换时保留各自状态不重新渲染
 - 🔍 **全局搜索 & 高亮** —— `Ctrl+F` 呼出，**双击选中文字后再按 Ctrl+F 自动填充**，支持独立撤销栈（`Ctrl+Z` 焦点在搜索栏时只回退搜索词）
 - 💾 **全局保存** —— `Ctrl+S` 无论焦点在顶部、侧边栏或内容区都能保存当前活跃文档，不强制点内容区
 - 🏷 **智能重命名** —— `.json / .log` 后缀自动隐藏不参与编辑，确认时自动追加原始扩展名，杜绝手滑改错后缀
 - 🎨 **三种皮肤模式** —— 亮色模式 / 内置背景（bgTwo.jpg，顶栏侧栏毛玻璃）/ 自定义上传背景，打开文件时内容编辑区保持原底色不被背景影响
-- 🚫 **单实例运行** —— 通过 `window_manager` 保证系统中只存在一个 JsonLayer 实例，防止端口/缓存冲突
 - 🛡 **Toast 幂等去重** —— 高频点击不会连环弹相同提示（1.5s 窗口 + 业务语义 key）
-- 🔌 **扩展注入友好** —— 设计为开源可二开项目，`center` / `share` 包对外暴露能力点，不想改源码也能动态注入业务逻辑（详见 [扩展注入机制](#扩展注入机制)）
 
 ## 🎯 平台支持
 
 | 平台 | 状态 | 说明 |
 | :--- | :--: | :--- |
 | **Windows** | ✅ 主支持 | x64，已提供 Inno Setup 安装脚本（`installer/json_layer.iss`） |
-| Web | ⚠️ 可编译 | 已提供 `web/` 构建资源，单实例与拖拽文件能力受限 |
-| macOS / Linux | 🔧 未测试 | 代码无平台强绑定，可自行编译验证 |
+| Web | ❌ 暂不支持 | 当前实现依赖 `dart:io` 本地文件系统能力 |
+| macOS / Linux | 🔧 未验证 | 当前文件路径处理依赖 Windows 路径分隔符 |
 
 ## 🖼 截图
  
@@ -110,7 +107,7 @@ installer/json_layer.iss
 
 ```
 lib/
-├── main.dart                      # 入口：单实例初始化、主题、路由、皮肤背景壳
+├── main.dart                      # 入口：窗口初始化、主题、路由、皮肤背景壳
 ├── routes/index.dart              # 路由表（欢迎页 / 首页）
 ├── pages/
 │   ├── welcome/WelcomePage.dart   # 首次启动：选择工作空间路径
@@ -139,48 +136,6 @@ lib/
 └── utils/JsonUtil.dart            # JSON 解析 / 格式化 / 压缩工具
 ```
 
-## 🔌 扩展注入机制
-
-> 面向二开开发者：**不想 fork 源码、只想改业务**？直接依赖本项目对外的两个包即可。
-
-本项目从设计之初就遵循「**内核 + 可注入扩展**」分离原则。核心包：
-
-| 包 | 职责 | 典型用法 |
-| :--- | :--- | :--- |
-| **center** | 暴露核心能力入口、注册点、生命周期钩子 | 注册自定义菜单项、自定义右键动作、文档保存拦截器 |
-| **share** | 共享数据结构、常量、工具接口、事件总线 | 在多个扩展之间共享 `DocumentItem` 模型、全局事件、通用工具 |
-
-### 典型注入示例（示意）
-
-```dart
-import 'package:center/center.dart';
-import 'package:share/share.dart';
-
-void main() {
-  // 1) 注册一个新的右侧面板（扩展请求/响应面板之外的自定义面板）
-  Center.registerSidePanel(
-    id: 'custom_preview',
-    title: '自定义预览',
-    builder: (ctx, doc) => MyPreviewWidget(doc),
-  );
-
-  // 2) 文档保存前拦截（例：自动上传到你的后端）
-  Center.interceptBeforeSave((doc) async {
-    await uploadToMyServer(doc.path, doc.content);
-    return SaveDecision.allow; // 或 .retry / .block
-  });
-
-  // 3) 订阅全局事件（例：文档重命名后同步更新索引）
-  Share.events.on<DocumentRenamed>().listen(customSyncIndex);
-
-  runApp(const JsonLayerApp());
-}
-```
-
-不想侵入源码的二开项目：**只需 `import center & share`，按上述 API 注入即可**，后续合并本仓库上游升级零冲突。
-
-> 具体 API 清单与类型定义可参考各包内的 `interface.dart`，欢迎提 Issue 补充需要的新能力点。
-
 ## 🛠 主要依赖
 
 | 包 | 用途 |
@@ -190,7 +145,7 @@ void main() {
 | `path_provider` | 自定义背景图本地存储路径 |
 | `file_picker` | 工作空间目录选择、自定义背景图片上传 |
 | `desktop_drop` | 外部文件拖入左侧树直接导入 JSON |
-| `window_manager` | 窗口单实例、激活、尺寸记忆 |
+| `window_manager` | 窗口初始化、显示与聚焦 |
 | `flutter_code_editor` + `highlight` | JSON 源码高亮基础能力 |
 | `font_awesome_flutter` | 侧栏与工具栏图标 |
 | `url_launcher` | 跳转到 GitHub、文档链接 |
