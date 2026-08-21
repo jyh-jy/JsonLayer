@@ -37,7 +37,8 @@
 
 ## 🖼 截图
 
-- 工作空间 + 对象树模式（自定义背景）  
+- 工作空间 + 对象树模式（自定义背景）
+-  ![带派不老铁们](https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/JsonLayer/Windows/%E4%B8%9C%E5%8C%97%E9%9B%A8%E5%A7%90%E8%83%8C%E6%99%AF.png)
   ![工作空间对象树](https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E9%A6%96%E9%A1%B5.png)
 
 - JSON 源码模式 + 搜索高亮  
