@@ -7,11 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="#特性"><strong>特性</strong></a> ·
-  <a href="#快速开始"><strong>快速开始</strong></a> ·
-  <a href="#快捷键"><strong>快捷键</strong></a> ·
-  <a href="#项目结构"><strong>结构</strong></a> ·
-  <a href="#开源协议"><strong>协议</strong></a>
+  <a href="#特性"><trong>特性</trong></a> ·
+  <a href="#快速开始"><trong>快速开始</trong></a> ·
+  <a href="#快捷键"><trong>快捷键</trong></a> ·
+  <a href="#项目结构"><trong>结构</trong></a> ·
+  <a href="#开源协议"><trong>协议</trong></a>
 </p>
 
 ---
@@ -55,7 +55,7 @@
 - **Windows 构建工具**：Visual Studio 2022（带「使用 C++ 的桌面开发」工作负载）
 - Dart 3.0+ 空安全已默认启用
 
-### 提建议可以加群聊
+### 欢迎大家加入群聊集思广益，不断优化
   <img src="images/group.png" width="140" alt="JsonLayer Group" />
 
 
