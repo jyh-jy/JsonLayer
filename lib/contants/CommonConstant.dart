@@ -27,6 +27,10 @@ class CommonConstants {
   static const double tabBarHeight = 40.0;
   static const double toolbarHeight = 40.0;
   static const double editorHeaderHeight = 32.0;
+  static const double editorFontSize = 13.0;
+  static const double editorLineHeight = 19.5;
+  static const double editorContentVerticalPadding = 16.0;
+  static const Duration searchNavigationAnimation = Duration(milliseconds: 160);
 
   /// 标签页标题最大宽度（超出省略号）
   static const double tabTitleMaxWidth = 140.0;

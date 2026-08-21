@@ -49,6 +49,7 @@ class _JsonEditorState extends State<JsonEditor> {
   final ScrollController _verticalScrollController = ScrollController();
   final FocusNode _editorFocusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
+
   /// 搜索栏的撤销/重做控制器：由 JsonEditor 持有，以便当焦点在 JSON
   /// 主编辑器上时，Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 也能路由到搜索框。
   final UndoHistoryController _searchUndoController = UndoHistoryController();
@@ -228,13 +229,35 @@ class _JsonEditorState extends State<JsonEditor> {
       affinity: TextAffinity.downstream,
     );
     if (scroll) {
-      // 让编辑器获得焦点以触发滚动，随后把焦点还给搜索框。
-      _editorFocusNode.requestFocus();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _searchFocusNode.requestFocus();
-      });
+      _scrollToMatch(range);
     }
+  }
+
+  /// 直接滚动正文视口，避免通过聚焦正文来触发框架的光标定位。
+  ///
+  /// 搜索框在 Windows 上重新获得焦点时会全选已有查询，下一次输入便会
+  /// 覆盖旧字符；因此搜索导航期间不能让搜索框短暂失焦。
+  void _scrollToMatch(TextRange range) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_verticalScrollController.hasClients) return;
+
+      final prefix = _controller.text.substring(0, range.start);
+      final lineIndex = '\n'.allMatches(prefix).length;
+      final position = _verticalScrollController.position;
+      final lineCenter =
+          CommonConstants.editorContentVerticalPadding +
+          (lineIndex + 0.5) * CommonConstants.editorLineHeight;
+      final target = (lineCenter - position.viewportDimension / 2)
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+
+      if ((position.pixels - target).abs() < 1) return;
+      _verticalScrollController.animateTo(
+        target,
+        duration: CommonConstants.searchNavigationAnimation,
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   void _nextMatch() {
@@ -580,7 +603,6 @@ class _JsonEditorState extends State<JsonEditor> {
 
   Widget _buildEditor(ThemeData theme) {
     final baseStyle = _baseStyle;
-    final lineHeight = 13 * 1.5;
     final maxLines = math.max(_lineCount, 1);
 
     return Container(
@@ -588,7 +610,7 @@ class _JsonEditorState extends State<JsonEditor> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildLineNumbers(lineHeight),
+          _buildLineNumbers(CommonConstants.editorLineHeight),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -638,7 +660,8 @@ class _JsonEditorState extends State<JsonEditor> {
                                       decoration: const InputDecoration(
                                         isCollapsed: true,
                                         contentPadding: EdgeInsets.symmetric(
-                                          vertical: 16,
+                                          vertical: CommonConstants
+                                              .editorContentVerticalPadding,
                                         ),
                                         disabledBorder: InputBorder.none,
                                         border: InputBorder.none,
@@ -667,7 +690,7 @@ class _JsonEditorState extends State<JsonEditor> {
   /// 编辑器文本样式（提取为 getter，供宽度测量复用同一套字体参数）。
   TextStyle get _baseStyle => TextStyle(
     fontFamily: 'Consolas',
-    fontSize: 13,
+    fontSize: CommonConstants.editorFontSize,
     color: Color(CommonConstants.textPrimaryColorValue),
     height: 1.5,
   );
