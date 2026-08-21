@@ -46,12 +46,41 @@ void main() {
       const TextRange(start: 0, end: 1),
       reason: 'composing 被清空 → 输入法会把这个字再提交一次',
     );
-    expect(
-      controller.selection.baseOffset,
-      1,
-      reason: '光标被重置 → 跳回第一行',
-    );
+    expect(controller.selection.baseOffset, 1, reason: '光标被重置 → 跳回第一行');
     expect(controller.text, '中', reason: '拼字中的文本不能被外部内容覆盖');
+  });
+
+  testWidgets('输入法确认候选时，必须接收只清空 composing 的更新', (tester) async {
+    await tester.pumpWidget(_host('', (_) {}));
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '中文',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ),
+    );
+    await tester.pump();
+
+    // Windows 输入法确认候选时，文本和光标可能都不变，只清空 composing。
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '中文',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+    );
+    await tester.pump();
+
+    final controller = _controllerOf(tester);
+    expect(controller.text, '中文', reason: '候选文字只能提交一次');
+    expect(
+      controller.value.composing,
+      TextRange.empty,
+      reason: '必须通知 Windows 输入法本轮拼字已经结束',
+    );
+    expect(controller.selection.baseOffset, 2);
   });
 
   testWidgets('非拼字状态下，外部内容正常同步且光标不跳到开头', (tester) async {

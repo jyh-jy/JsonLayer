@@ -6,14 +6,14 @@
 ;
 ;  手动编译示例：
 ;    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;        /DMyAppVersion=1.0.5 installer\json_layer.iss
+;        /DMyAppVersion=1.0.6 installer\json_layer.iss
 ; ============================================================
 
 #define MyAppName      "JsonLayer"
 #define MyAppPublisher "JsonLayer"
 #define MyAppUrl       "https://github.com/"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.5"
+  #define MyAppVersion "1.0.6"
 #endif
 #ifndef MyAppUpdatesUrl
   #define MyAppUpdatesUrl MyAppUrl

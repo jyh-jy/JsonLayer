@@ -909,6 +909,33 @@ class _JsonCodeController extends CodeController {
   _JsonCodeController({required String text})
     : super(text: text, language: json_highlight.json);
 
+  @override
+  set value(TextEditingValue newValue) {
+    final currentValue = super.value;
+    final onlyComposingChanged =
+        newValue.text == currentValue.text &&
+        newValue.selection == currentValue.selection &&
+        newValue.composing != currentValue.composing;
+
+    if (!onlyComposingChanged) {
+      super.value = newValue;
+      return;
+    }
+
+    // flutter_code_editor 0.3.5 会忽略仅 composing 变化的更新。Windows
+    // 输入法确认候选时常只清空 composing；若未接收，输入法会再次提交汉字。
+    // 临时翻转不影响显示的 selection 元数据，让父类接收 composing 后立即复原。
+    final selection = newValue.selection;
+    final forcedSelection = TextSelection(
+      baseOffset: selection.baseOffset,
+      extentOffset: selection.extentOffset,
+      affinity: selection.affinity,
+      isDirectional: !selection.isDirectional,
+    );
+    super.value = newValue.copyWith(selection: forcedSelection);
+    super.value = newValue;
+  }
+
   /// 搜索栏是否可见（由外部同步），用于决定 Enter/Esc 是否用于搜索。
   bool searchBarVisible = false;
 
