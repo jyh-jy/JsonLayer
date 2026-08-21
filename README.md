@@ -39,7 +39,7 @@
 
 - 工作空间 + 对象树模式（自定义背景）
 - （带派不老铁们）
--  ![带派不老铁们](https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E9%A6%96%E9%A1%B5.png)
+-  ![带派不老铁们](https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E9%9B%A8%E5%A7%90.png)
 -  （高达）
   ![工作空间对象树](https://bigbang-1394008819.cos.ap-beijing.myqcloud.com/%E9%A6%96%E9%A1%B5.png)
 
