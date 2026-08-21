@@ -16,6 +16,9 @@ class CommonConstants {
   /// 提示词框框预设内容存储 key
   static const String presetPromptKey = 'preset_prompt';
 
+  /// 用户尚未保存提示词时使用的默认内容
+  static const String defaultPresetPrompt = '我的JSON格式有问题帮我修复';
+
   /// 文件树展开状态存储 key（存文件夹绝对路径列表）
   static const String expandedFolderPathsKey = 'expanded_folder_paths';
 

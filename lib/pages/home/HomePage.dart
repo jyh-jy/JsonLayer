@@ -285,7 +285,9 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) return;
     // 提示词当前值由 _PromptField 通过 onChanged 回写，避免在对话框退出
     // 动画期间持有/销毁 TextEditingController（会导致"used after dispose"崩溃）。
-    String pendingPrompt = prefs.getString(CommonConstants.presetPromptKey) ?? '';
+    String pendingPrompt =
+        prefs.getString(CommonConstants.presetPromptKey) ??
+        CommonConstants.defaultPresetPrompt;
 
     await showDialog<void>(
       context: context,

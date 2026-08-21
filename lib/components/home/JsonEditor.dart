@@ -819,7 +819,9 @@ class _JsonEditorState extends State<JsonEditor> {
 
     final prefs = await SharedPreferences.getInstance();
     final presetPrompt =
-        prefs.getString(CommonConstants.presetPromptKey)?.trim() ?? '';
+        (prefs.getString(CommonConstants.presetPromptKey) ??
+                CommonConstants.defaultPresetPrompt)
+            .trim();
 
     // 预设提示词非空时：提示词 + 换行 + JSON 内容；否则只复制 JSON 内容
     final combined = presetPrompt.isEmpty
