@@ -37,6 +37,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
 
   final FocusNode _focusNode = FocusNode();
   final FocusNode _searchFocusNode = FocusNode();
+
   /// 搜索框的撤销/重做控制器（即便焦点不在搜索框也能 Ctrl+Z 撤回搜索词）。
   final UndoHistoryController _searchUndoController = UndoHistoryController();
   final Set<String> _collapsedPaths = {};
@@ -553,7 +554,13 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
       update(left + 8 + 14 + (key.length + 5) * _charWidth + _badgeWidth);
       _measureObject(Map<String, dynamic>.from(value), left + 17, update);
     } else if (value is List) {
-      update(left + 8 + 14 + (key.length + 5) * _charWidth + _badgeWidth);
+      update(
+        left +
+            8 +
+            14 +
+            (key.length + 5) * _charWidth +
+            _measureBadgeWidth(_arrayTypeLabel(value)),
+      );
       for (var i = 0; i < value.length; i++) {
         final item = value[i];
         if (item is Map) {
@@ -581,6 +588,15 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
     final chars = keyChars + valueText.length + trailing;
     update(left + chars * _charWidth + _badgeWidth);
   }
+
+  double _measureBadgeWidth(String label) {
+    const baselineLength = 'boolean'.length;
+    final extraCharacters = label.length - baselineLength;
+    return _badgeWidth +
+        (extraCharacters > 0 ? extraCharacters * _charWidth : 0);
+  }
+
+  String _arrayTypeLabel(List<dynamic> value) => 'Array[${value.length}]';
 
   Widget _buildTree(ThemeData theme) {
     if (_errorMessage != null) {
@@ -756,7 +772,7 @@ class _ObjectTreeEditorState extends State<ObjectTreeEditor> {
             key: key,
             collapsed: collapsed,
             openToken: '[',
-            typeLabel: 'array',
+            typeLabel: _arrayTypeLabel(value),
             typeColor: Colors.teal,
             path: path,
           ),
