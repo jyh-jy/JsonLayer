@@ -10,6 +10,7 @@ import 'package:json_layer/pages/home/HomePage.dart';
 import 'package:json_layer/pages/welcome/WelcomePage.dart';
 import 'package:json_layer/routes/index.dart';
 import 'package:json_layer/services/FileWorkspaceService.dart';
+import 'package:json_layer/services/UpdateService.dart';
 import 'package:json_layer/services/WorkspaceService.dart';
 import 'package:json_layer/stores/EditorStore.dart';
 import 'package:json_layer/stores/TabStore.dart';
@@ -24,6 +25,7 @@ void main() async {
   // 提前初始化 ThemeStore，MaterialApp 启动时就能拿到 themeMode
   final themeStore = ThemeStore();
   await themeStore.loadFromPrefs();
+  final updateService = AutoUpdateService();
 
   WindowOptions windowOptions = const WindowOptions(
     size: Size(1280, 800),
@@ -39,13 +41,28 @@ void main() async {
     await windowManager.focus();
   });
 
-  runApp(JsonLayerApp(themeStore: themeStore));
+  runApp(JsonLayerApp(themeStore: themeStore, updateService: updateService));
+
+  // 更新检查不能阻塞首帧。正式包通过 dart-define 注入更新源；
+  // 本地开发未配置时 initialize 会直接返回。
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    try {
+      await updateService.initialize();
+    } catch (error) {
+      debugPrint('自动更新初始化失败: $error');
+    }
+  });
 }
 
 class JsonLayerApp extends StatelessWidget {
   final ThemeStore themeStore;
+  final UpdateService updateService;
 
-  const JsonLayerApp({super.key, required this.themeStore});
+  JsonLayerApp({
+    super.key,
+    required this.themeStore,
+    UpdateService? updateService,
+  }) : updateService = updateService ?? AutoUpdateService();
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +96,7 @@ class JsonLayerApp extends StatelessWidget {
             ChangeNotifierProvider<TabStore>.value(value: tabStore),
             ChangeNotifierProvider<EditorStore>.value(value: editorStore),
             Provider<WorkspaceService>.value(value: service),
+            Provider<UpdateService>.value(value: updateService),
           ],
           child: Consumer<ThemeStore>(
             builder: (context, store, child) {

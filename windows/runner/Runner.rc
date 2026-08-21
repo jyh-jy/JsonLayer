@@ -54,6 +54,15 @@ END
 // remains consistent on all systems.
 IDI_APP_ICON            ICON                    "resources\\app_icon.ico"
 
+/////////////////////////////////////////////////////////////////////////////
+//
+// WinSparkle update signature
+//
+
+// Public key used to verify update packages. The matching private key is
+// excluded from Git and must only be available to the release process.
+DSAPub                  DSAPEM                  "../../dsa_pub.pem"
+
 
 /////////////////////////////////////////////////////////////////////////////
 //

@@ -6,14 +6,17 @@
 ;
 ;  手动编译示例：
 ;    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" ^
-;        /DMyAppVersion=1.0.0 installer\json_layer.iss
+;        /DMyAppVersion=1.0.5 installer\json_layer.iss
 ; ============================================================
 
 #define MyAppName      "JsonLayer"
 #define MyAppPublisher "JsonLayer"
 #define MyAppUrl       "https://github.com/"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.5"
+#endif
+#ifndef MyAppUpdatesUrl
+  #define MyAppUpdatesUrl MyAppUrl
 #endif
 #define MyAppExeName   "json_layer.exe"
 
@@ -27,7 +30,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppUrl}
 AppSupportURL={#MyAppUrl}
-AppUpdatesURL={#MyAppUrl}
+AppUpdatesURL={#MyAppUpdatesUrl}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 ; 允许输出版本号差异而升级时保留目录
@@ -49,6 +52,8 @@ ArchitecturesInstallIn64BitMode=x64
 ArchitecturesAllowed=x64
 ; 单实例
 SetupMutex=json_layer_setup_mutex
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"

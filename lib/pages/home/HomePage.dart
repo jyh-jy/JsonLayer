@@ -17,6 +17,7 @@ import 'package:json_layer/components/home/WorkspaceTree.dart';
 import 'package:json_layer/components/home/DocumentTabs.dart';
 import 'package:json_layer/components/home/RequestResponsePanel.dart';
 import 'package:json_layer/contants/CommonConstant.dart';
+import 'package:json_layer/services/UpdateService.dart';
 import 'package:json_layer/stores/TabStore.dart';
 import 'package:json_layer/stores/ThemeStore.dart';
 import 'package:json_layer/stores/WorkspaceStore.dart';
@@ -266,7 +267,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 设置对话框：Tab 切换（工作空间 / 外观）
+  /// 设置对话框：Tab 切换（工作空间 / 外观 / 关于）
   Future<void> _showSettingsDialog() async {
     final workspaceStore = context.read<WorkspaceStore>();
     final themeStore = context.read<ThemeStore>();
@@ -297,7 +298,7 @@ class _HomePageState extends State<HomePage> {
           text: pendingWorkspacePath,
         );
         return DefaultTabController(
-          length: 2,
+          length: 3,
           child: StatefulBuilder(
             builder: (ctx, setDialogState) => AlertDialog(
               shape: RoundedRectangleBorder(
@@ -349,6 +350,7 @@ class _HomePageState extends State<HomePage> {
                         tabs: const [
                           Tab(text: '工作空间'),
                           Tab(text: '外观'),
+                          Tab(text: '关于'),
                         ],
                       ),
                     ),
@@ -738,6 +740,8 @@ class _HomePageState extends State<HomePage> {
                               ],
                             ),
                           ),
+                          // ============ Tab 3: 关于 ============
+                          const _UpdateSettingsPanel(),
                         ],
                       ),
                     ),
@@ -972,6 +976,130 @@ class _HomePageState extends State<HomePage> {
           ],
         );
       },
+    );
+  }
+}
+
+class _UpdateSettingsPanel extends StatefulWidget {
+  const _UpdateSettingsPanel();
+
+  @override
+  State<_UpdateSettingsPanel> createState() => _UpdateSettingsPanelState();
+}
+
+class _UpdateSettingsPanelState extends State<_UpdateSettingsPanel> {
+  bool _isChecking = false;
+
+  Future<void> _checkForUpdates() async {
+    if (_isChecking) return;
+    setState(() => _isChecking = true);
+
+    try {
+      final result = await context.read<UpdateService>().checkForUpdates();
+      if (!mounted) return;
+
+      final message = switch (result) {
+        UpdateCheckResult.started => '正在检查更新',
+        UpdateCheckResult.notConfigured => '此版本未启用自动更新',
+        UpdateCheckResult.unsupported => '当前系统不支持自动更新',
+      };
+      SafeSnackBar.show(
+        context,
+        message: message,
+        idempotencyKey: 'check_for_updates_${result.name}',
+        behavior: SnackBarBehavior.floating,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      SafeSnackBar.show(
+        context,
+        message: '检查更新失败: $error',
+        idempotencyKey: 'check_for_updates_failed',
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+      );
+    } finally {
+      if (mounted) setState(() => _isChecking = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final updateService = context.read<UpdateService>();
+    final enabled = updateService.isSupported && updateService.isConfigured;
+    final secondaryColor = Color(CommonConstants.textSecondaryColorValue);
+
+    return Align(
+      alignment: Alignment.topLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Image.asset(
+                'images/JsonLayer.png',
+                width: 44,
+                height: 44,
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    CommonConstants.appName,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Windows 桌面版',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: secondaryColor,
+                        ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '软件更新',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: secondaryColor,
+                  fontWeight: FontWeight.w500,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(
+                enabled ? Icons.check_circle_outline : Icons.info_outline,
+                size: 16,
+                color: enabled
+                    ? Color(CommonConstants.actionFormatColorValue)
+                    : secondaryColor,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                enabled ? '自动更新已启用' : '此版本未启用自动更新',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _isChecking ? null : _checkForUpdates,
+            icon: SizedBox.square(
+              dimension: 16,
+              child: _isChecking
+                  ? const CircularProgressIndicator(strokeWidth: 2)
+                  : const Icon(Icons.system_update_alt, size: 16),
+            ),
+            label: Text(_isChecking ? '正在检查' : '检查更新'),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -32,6 +32,11 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/dist/
+
+# WinSparkle 更新签名私钥（必须离线备份，禁止提交）
+/dsa_priv.pem
+/dsaparam.pem
 
 # Symbolication related
 app.*.symbols
